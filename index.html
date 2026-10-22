@@ -64,6 +64,14 @@ tr.click{cursor:pointer}
 tr.click:hover td{background:var(--accent-soft)}
 tfoot td{font-weight:700;border-bottom:0}
 .mono{font-family:var(--f-num);font-size:13px}
+.photos{display:flex;flex-wrap:wrap;gap:8px}
+.photos figure{margin:0;position:relative}
+.photos img{width:120px;height:120px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:zoom-in;background:#fff}
+.photos .x{position:absolute;top:2px;right:2px;border:0;border-radius:99px;width:24px;height:24px;background:rgba(0,0,0,.6);color:#fff;cursor:pointer}
+.custom{border-left:4px solid var(--warn);padding:10px 12px;background:var(--warn-soft);border-radius:6px;display:flex;flex-direction:column;gap:8px}
+.custom .spec{white-space:pre-wrap}
+#lightbox{position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.85);display:grid;place-items:center;cursor:zoom-out}
+#lightbox img{max-width:96vw;max-height:94vh;object-fit:contain}
 .pill{display:inline-block;font-size:12px;padding:1px 9px;border-radius:99px;font-weight:500}
 .pill.ok{color:var(--ok);background:var(--ok-soft)}
 .pill.warn{color:var(--warn);background:var(--warn-soft)}
@@ -570,7 +578,7 @@ function kindHTML(kind){
   const head=`<tr><th>單號</th><th>日期</th><th>${k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='SO'?'<th>收款</th>':''}${FLOW[kind]?'<th>流程進度</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>item(l.item).name+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'?payState(d):null;
-    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}</td><td>${d.date}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${money(amount(d))}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span></td>`:''}${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
+    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.custom?' <span class="pill warn">客訂</span>':''}</td><td>${d.date}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${money(amount(d))}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span></td>`:''}${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
   const body=kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'');
   return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶時填一張，收款可以分次登記。'}[kind]}</p></div>
     <button type="button" class="btn primary" id="toggleForm">${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
@@ -583,6 +591,9 @@ function kindHTML(kind){
       ${editing?'<label class="f">修改人（必填）<input id="f-editor" list="st-bys2"></label><label class="f">修改原因<input id="f-reason" placeholder="例如：客戶改數量"></label>':''}
     </div>
     ${kind==='SO'||kind==='PO'?'<div id="partyInfo" class="pinfo" hidden></div>':''}
+    ${kind==='SO'?`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-custom" style="width:auto">這是客訂單（客製化商品）</label>
+    <div id="customBox" class="custom" hidden><label class="f">客訂說明（尺寸、顏色、字樣、交期⋯）<textarea id="f-spec" rows="3"></textarea></label>
+      ${editing?'<p class="hint">照片請在單據畫面新增或移除。</p>':'<label class="f">成品參考照片（可一次選多張，手機可直接拍照）<input type="file" id="f-photos" accept="image/*" multiple></label><div class="photos" id="f-prev"></div>'}</div>`:''}
     ${body}
     <p class="err" id="f-err"></p>
     <div class="row"><button type="submit" class="btn primary">存檔並查看 A4 單據</button><span class="hint">存檔後庫存總表會馬上更新</span></div>
@@ -647,23 +658,61 @@ document.addEventListener('submit',e=>{
     const sum=ls=>ls.map(l=>(l.dir==='use'?'[領用]':l.dir==='out'?'[完工]':'')+item(l.item).name+'×'+l.qty+(l.price!=null&&KINDS[kind].priced?'@'+l.price:'')).join('、');
     const ch=[];if(d.date!==date)ch.push(`日期：${d.date} → ${date}`);if(d.party!==(party||'—'))ch.push(`${k.party}：${d.party} → ${party||'—'}`);
     if(sum(d.lines)!==sum(lines))ch.push(`品項：${sum(d.lines)} → ${sum(lines)}`);
+    const cu=kind==='SO'?customVal():null;
+    if(cu&&(!!d.custom!==cu.custom||(d.spec||'')!==cu.spec))ch.push(`客訂：${d.custom?'是':'否'}${d.spec?'（'+d.spec+'）':''} → ${cu.custom?'是':'否'}${cu.spec?'（'+cu.spec+'）':''}`);
     if(!ch.length){err.textContent='沒有任何變更。';return}
     const entry={at:new Date().toLocaleString('zh-TW',{hour12:false}),by,reason:$('#f-reason').value.trim(),changes:ch};
     (d.log=d.log||[]).push(entry);S.audit.unshift({no:d.no,action:'修改',...entry});
     d.date=date;d.party=party||'—';d.lines=lines;if(d.steps&&d.steps[0])d.steps[0].at=date;
+    if(cu){if(cu.custom){d.custom=true;d.spec=cu.spec;if(!d.pk)d.pk=newKey('p')}else{delete d.custom;delete d.spec}}
     save();const no=d.no;editing=null;formOpen=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
   const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};
   if(kind==='SO')doc.paid=+($('#f-paid').value)||0;
+  const cu=kind==='SO'?customVal():null;
+  if(cu&&cu.custom){doc.custom=true;doc.spec=cu.spec;doc.pk=newKey('p');if(formPhotos.length){doc.photos=formPhotos.length;putPhotos(doc.pk,formPhotos.slice())}}
+  formPhotos=[];
   if(kind==='EX')doc.returned=false;
   if(FLOW[kind])doc.steps=[{at:date,by:''}];
   S.docs.push(doc);save();formOpen=false;render();toast('已存檔 '+doc.no);openDoc(doc.no);
 });
+
+/* ---------- 客訂與成品照片 ---------- */
+// 照片另外存在雲端 jxc/photos/<單據的 pk>，打開單據時才讀，不放進備份檔。
+let formPhotos=[];const PH={};
+function customVal(){const c=$('#f-custom');return c?{custom:c.checked,spec:$('#f-spec').value.trim()}:null}
+function shrinkPhoto(f){return new Promise((ok,bad)=>{const r=new FileReader();r.onerror=bad;r.onload=()=>{const im=new Image();im.onerror=bad;im.onload=()=>{
+  const k=Math.min(1,1280/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',.8))};im.src=r.result};r.readAsDataURL(f)})}
+async function putPhotos(pk,list){PH[pk]=list;try{if(list.length)await db.doc('photos/'+pk).set({list});else await db.doc('photos/'+pk).delete()}catch(e){toast('照片沒有存成功，請再試一次')}}
+async function getPhotos(pk){if(PH[pk])return PH[pk];try{const s=await db.doc('photos/'+pk).get();PH[pk]=s.exists&&s.data().list||[]}catch(e){return []}return PH[pk]}
+function thumbs(list,rm){return list.map((src,i)=>`<figure><img src="${src}" alt="成品照片 ${i+1}" data-zoom>${rm?`<button type="button" class="x" ${rm}="${i}" aria-label="移除這張照片">✕</button>`:''}</figure>`).join('')}
+function customPanel(d){return `<div class="custom"><b>客訂單</b>${d.spec?`<div class="spec">${esc(d.spec)}</div>`:''}
+  <div class="photos" id="docPhotos"><span class="hint">照片讀取中⋯</span></div>
+  <div><label class="btn small">＋ 新增照片<input type="file" id="addPhoto" accept="image/*" multiple hidden></label></div></div>`}
+async function showPhotos(d){const list=await getPhotos(d.pk);const box=$('#docPhotos');if(!box)return;
+  box.innerHTML=list.length?thumbs(list,can('edit')?'data-rmphoto':''):'<span class="hint">還沒有照片。</span>'}
+function curDoc(){const bar=$('.sheetbar');return bar&&S.docs.find(x=>x.no===bar.dataset.no)}
+document.addEventListener('change',async e=>{
+  if(e.target.id==='f-custom'){$('#customBox').hidden=!e.target.checked;return}
+  if(e.target.id==='f-photos'){for(const f of e.target.files){try{formPhotos.push(await shrinkPhoto(f))}catch(x){toast('有一張照片讀不到')}}e.target.value='';$('#f-prev').innerHTML=thumbs(formPhotos,'data-rmfp');return}
+  if(e.target.id==='addPhoto'){const d=curDoc();if(!d)return;if(!d.pk){d.pk=newKey('p');save()}const list=(await getPhotos(d.pk)).slice();
+    for(const f of e.target.files){try{list.push(await shrinkPhoto(f))}catch(x){toast('有一張照片讀不到')}}e.target.value='';
+    d.photos=list.length;save();await putPhotos(d.pk,list);showPhotos(d);toast('已新增照片')}
+});
+document.addEventListener('click',async e=>{const t=e.target;
+  if(t.dataset.rmfp!=null){formPhotos.splice(+t.dataset.rmfp,1);$('#f-prev').innerHTML=thumbs(formPhotos,'data-rmfp');return}
+  if(t.dataset.rmphoto!=null){const d=curDoc();if(!d||!can('edit')||!confirm('確定移除這張照片？'))return;const list=(await getPhotos(d.pk)).slice();list.splice(+t.dataset.rmphoto,1);
+    d.photos=list.length;save();await putPhotos(d.pk,list);showPhotos(d);return}
+  if(t.dataset.zoom!=null){const lb=document.createElement('div');lb.id='lightbox';lb.innerHTML=`<img src="${t.src}" alt="">`;lb.onclick=()=>lb.remove();document.body.appendChild(lb);return}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#lightbox')){$('#lightbox').remove();e.stopPropagation()}},true);
 
 /* ---------- A4 單據 ---------- */
 let delArm=false;
 function fillEdit(){
   const d=S.docs.find(x=>x.no===editing);if(!d)return;
   $('#f-date').value=d.date;$('#f-party').value=d.party==='—'?'':d.party;showPartyInfo();
+  if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom}
   const names=[...new Set(S.docs.flatMap(x=>(x.log||[]).map(g=>g.by).concat((x.steps||[]).map(s=>s.by))).filter(Boolean))];
   $('#docForm').insertAdjacentHTML('beforeend',`<datalist id="st-bys2">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`);
   document.querySelectorAll('#docForm .lines').forEach(box=>{const dir=box.dataset.dir,type=box.dataset.type;const ls=d.lines.filter(l=>(l.dir||'')===dir);
@@ -684,8 +733,9 @@ function openDoc(no){
   if(d.kind==='SO'){const a=amount(d),ps=payState(d);action=`<div class="row"><span>應收 <b class="mono">${money(a)}</b>，已收 <b class="mono">${money(d.paid)}</b>，未收 <b class="mono">${money(a-(d.paid||0))}</b></span><span class="pill ${ps[1]}">${ps[0]}</span></div>${ps[0]==='已收'?'':`<div class="row"><label class="f" style="flex:1;max-width:220px">本次收款金額<input id="payIn" type="number" min="0" inputmode="decimal" value="${a-(d.paid||0)}"></label><button type="button" class="btn primary" id="savePay" style="align-self:flex-end">登記收款</button></div>`}`}
   $('#overlay').innerHTML=`<div class="sheetbar" data-no="${d.no}">
     <div class="row between"><b class="mono">${d.no}</b><div class="row">${can('edit')?'<button type="button" class="btn small" id="editDoc">修改這張單</button>':''}${can('del')?'<button type="button" class="btn danger small" id="delDoc">刪除這張單</button>':''}<button type="button" class="btn small" id="closeDoc">關閉</button></div></div>
-    ${flowPanel(d)}${action}${logHTML(d)}<div class="row"><button type="button" class="btn" id="printDoc">列印${d.kind==='SO'?'出貨單':''}／存成 PDF</button>${d.kind==='SO'?'<button type="button" class="btn primary" id="printRcpt">列印收據</button>':''}<span class="hint">列印視窗選 A4、直向；要存 PDF 就在印表機選「另存為 PDF」。</span></div></div>${paperHTML(d)}${d.kind==='SO'?receiptHTML(d):''}`;
+    ${d.custom?customPanel(d):''}${flowPanel(d)}${action}${logHTML(d)}<div class="row"><button type="button" class="btn" id="printDoc">列印${d.kind==='SO'?'出貨單':''}／存成 PDF</button>${d.kind==='SO'?'<button type="button" class="btn primary" id="printRcpt">列印收據</button>':''}<span class="hint">列印視窗選 A4、直向；要存 PDF 就在印表機選「另存為 PDF」。</span></div></div>${paperHTML(d)}${d.kind==='SO'?receiptHTML(d):''}`;
   $('#overlay').hidden=false;document.body.style.overflow='hidden';
+  if(d.custom)showPhotos(d);
 }
 function paperHTML(d){
   const k=KINDS[d.kind];let head,rows,foot='';
@@ -703,6 +753,7 @@ function paperHTML(d){
     <div class="ph"><div><div class="co"><b>${COMPANY.name}</b><br><span style="font-size:.85em;color:#555">${COMPANY.line}</span></div><h3>${k.name}</h3></div><div class="mono" style="color:var(--paper-ink)">${d.no}</div></div>
     <div class="meta"><div><span>日期：</span>${d.date}</div><div><span>${k.party}：</span>${esc(d.party)}</div>${partyInfo(d)}${shipInfo(d)}</div>
     <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody>${foot?`<tfoot>${foot}</tfoot>`:''}</table>
+    ${d.custom?`<div style="white-space:pre-wrap"><b>客訂說明：</b>${esc(d.spec||'')}</div>`:''}
     <div class="grow"></div>
     <div class="sign">${k.sign.map(s=>`<div>${s}</div>`).join('')}</div>
     <div class="foot">本單由系統自動產生</div></div>`;
@@ -769,6 +820,7 @@ $('#overlay').addEventListener('click',e=>{
   if(e.target.id==='editDoc'){if(!can('edit'))return;const no=d.no,kd=d.kind;closeDoc();editing=no;formOpen=true;page=kd;try{localStorage.setItem(KEY+'-page',kd)}catch(x){}renderTabs();render();return}
   if(e.target.id==='delDoc'){if(!can('del'))return;if(!delArm){delArm=true;e.target.textContent='再按一次確認刪除';return}
     S.audit.unshift({no:d.no,action:'刪除',at:new Date().toLocaleString('zh-TW',{hour12:false}),by:role==='admin'?'管理者':'一般人員',reason:'',changes:[d.party+'：'+d.lines.map(l=>item(l.item).name+'×'+l.qty).join('、')]});
+    if(d.pk)db.doc('photos/'+d.pk).delete().catch(()=>{});
     S.docs=S.docs.filter(x=>x!==d);save();closeDoc();render();toast('已刪除 '+d.no);return}
   if(e.target.id==='stNext'){const F=FLOW[d.kind],nx=F[stepN(d)];if(!nx)return;
     d.steps.push({at:$('#st-at').value||today(),by:$('#st-by').value.trim()});
@@ -805,7 +857,7 @@ function renderHist(){
   let tq=0,ta=0,tp=0;
   const rows=docs.map(d=>{const ls=hist.item?d.lines.filter(l=>l.item===hist.item):d.lines;const q=ls.reduce((a,l)=>a+l.qty,0),a=ls.reduce((s,l)=>s+l.qty*l.price,0);tq+=q;ta+=a;
     const full=amount(d),un=full-(d.paid||0);tp+=isSO?un:0;const ps=isSO?payState(d):null;
-    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}</td><td>${d.date}</td><td>${esc(d.party)}</td><td>${esc(ls.map(l=>item(l.item).code+' '+item(l.item).name+' ×'+fmt(l.qty)+' @'+fmt(l.price)).join('、'))}</td><td class="n">${fmt(q)}</td><td class="n">${money(a)}</td>${isSO?`<td class="n">${money(un)}</td><td><span class="pill ${ps[1]}">${ps[0]}</span></td>`:''}</tr>`}).join('');
+    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.custom?' <span class="pill warn">客訂</span>':''}</td><td>${d.date}</td><td>${esc(d.party)}</td><td>${esc(ls.map(l=>item(l.item).code+' '+item(l.item).name+' ×'+fmt(l.qty)+' @'+fmt(l.price)).join('、'))}</td><td class="n">${fmt(q)}</td><td class="n">${money(a)}</td>${isSO?`<td class="n">${money(un)}</td><td><span class="pill ${ps[1]}">${ps[0]}</span></td>`:''}</tr>`}).join('');
   $('#h-out').innerHTML=docs.length?`<div class="row between"><b>${docs.length} 張${isSO?'銷貨單':'採購單'}</b>${isSO&&tp>0?`<span class="pill bad">未收合計 ${money(tp)}</span>`:''}</div>
     <div class="tablebox"><table><thead><tr><th>單號</th><th>日期</th><th>${isSO?'客戶':'廠商'}</th><th>品項明細</th><th class="n">數量</th><th class="n">金額</th>${isSO?'<th class="n">未收</th><th>收款</th>':''}</tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td colspan="4">合計${hist.item?'（只算所選品項）':''}</td><td class="n">${fmt(tq)}</td><td class="n">${money(ta)}</td>${isSO?`<td class="n">${money(tp)}</td><td></td>`:''}</tr></tfoot></table></div><p class="hint">點任一筆可打開原單、再看一次 A4 版面。</p>`
