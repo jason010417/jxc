@@ -140,6 +140,13 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
 @media (max-width:520px){.steps{grid-auto-flow:row}}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:99px;font-size:14px;z-index:30}
 @media (prefers-reduced-motion:no-preference){.toast{transition:opacity .3s}}
+.fc-box>summary{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;cursor:pointer;list-style:none}
+.fc-box>summary::-webkit-details-marker{display:none}
+.fc-box>summary::before{content:'▸';color:var(--accent);font-size:14px}
+.fc-box[open]>summary::before{content:'▾'}
+.fc-box>summary .sub{margin:0}
+.fc-box[open]{display:flex;flex-direction:column;gap:12px}
+.fc-box:not([open]){display:block;padding:12px 16px}
 </style>
 </head>
 <body>
@@ -482,8 +489,9 @@ document.addEventListener('click',e=>{const b=e.target.closest('#hf button');if(
 function addDays(iso,n){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function forecastHTML(){
   if(!fc.to)fc.to=today();if(!fc.from)fc.from=addDays(fc.to,-29);
-  return `<section class="panel">
-    <div><p class="sub" style="margin:0">區間用量與訂購預估</p><p class="hint">選一段日期，看這段期間每個品項進出多少，並依平均每天用量，預估接下來需要多訂多少。</p></div>
+  return `<details class="panel fc-box" id="fcBox" ${fcOpen?'open':''}>
+    <summary><span class="sub">區間用量與訂購預估</span><span class="hint">${fcOpen?'按這裡收起':'按這裡展開'}</span></summary>
+    <div><p class="hint">選一段日期，看這段期間每個品項進出多少，並依平均每天用量，預估接下來需要多訂多少。</p></div>
     <div class="grid-f">
       <label class="f">從<input id="fc-from" type="date" value="${fc.from}"></label>
       <label class="f">到<input id="fc-to" type="date" value="${fc.to}"></label>
@@ -492,9 +500,15 @@ function forecastHTML(){
     </div>
     <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="fc-only" ${fc.only?'checked':''} style="width:auto">只看建議訂購的品項</label>
     <div id="fcOut"></div>
-  </section>`;
+  </details>`;
 }
+let fcOpen=false;try{fcOpen=localStorage.getItem(KEY+'-fcOpen')==='1'}catch(e){}
+document.addEventListener('toggle',e=>{if(e.target.id!=='fcBox')return;fcOpen=e.target.open;
+  try{localStorage.setItem(KEY+'-fcOpen',fcOpen?'1':'0')}catch(x){}
+  const h=e.target.querySelector('summary .hint');if(h)h.textContent=fcOpen?'按這裡收起':'按這裡展開';
+  if(fcOpen)renderForecast()},true);
 function renderForecast(){
+  if(!fcOpen||!$('#fcOut'))return;
   const out=$('#fcOut');if(!out)return;
   const days=Math.max(1,Math.round((new Date(fc.to)-new Date(fc.from))/864e5)+1);
   const start=stockUntil(addDays(fc.from,-1)),rng=stockUntil(fc.to,fc.from),now=stock();
