@@ -149,6 +149,7 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
       <h1>小團隊進銷存</h1>
       <span class="tag" id="syncTag">線上版・連線中…</span>
       <span class="spacer"></span>
+      <span id="userBox" style="font-size:13px"></span>
       <span id="roleBox" style="font-size:13px"></span>
       <button class="link" id="backup" type="button">備份資料</button>
       <button class="link" id="restoreBtn" type="button">還原備份</button>
@@ -165,6 +166,7 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script>
 /* Firebase Realtime Database 存檔：資料放在 jxc/ 底下，不會動到舊 erp-app 的 erp/ 資料 */
 const FIREBASE_CONFIG={
@@ -178,8 +180,8 @@ const FIREBASE_CONFIG={
 };
 (function(){
   const ROOT='jxc';
-  let fdb=null;
-  try{firebase.initializeApp(FIREBASE_CONFIG);fdb=firebase.database()}catch(e){console.error('Firebase 初始化失敗',e)}
+  let fdb=null,auth=null;
+  try{firebase.initializeApp(FIREBASE_CONFIG);fdb=firebase.database();auth=firebase.auth()}catch(e){console.error('Firebase 初始化失敗',e)}
   // Each record is stored as one JSON string so empty arrays and special keys survive the round trip.
   const enc=d=>({j:JSON.stringify(d)});
   const dec=v=>{try{return v&&typeof v.j==='string'?JSON.parse(v.j):null}catch(e){return null}};
@@ -199,7 +201,39 @@ const FIREBASE_CONFIG={
         prev=cur;fn({docChanges:()=>changes,metadata:{}})};
       r.on('value',cb,e=>err&&err(mapErr(e)));return()=>r.off('value',cb)}});
   const db=fdb&&{doc:docRef,collection:collRef};
-  window.claude={use:async n=>n==='db'?db:null};
+
+  // Google 登入：只有 OWNER 和 jxcMembers 名單裡的帳號能讀寫資料（由 Firebase 規則把關）。
+  const OWNER='jason010417@gmail.com';
+  const mkey=e=>String(e||'').trim().toLowerCase().replace(/\./g,',');
+  let resolveDb;const dbReady=new Promise(r=>resolveDb=r);let opened=false;
+  window.claude={use:async n=>n==='db'?(db?dbReady:null):null};
+  const gate=html=>{const m=document.getElementById('main');if(m)m.innerHTML='<section class="panel" style="max-width:460px;margin:8vh auto;text-align:center">'+html+'</section>'};
+  const esc2=t=>String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function userBox(u){const b=document.getElementById('userBox');if(b)b.innerHTML=u?esc2(u.email)+' <button type="button" class="link" id="signOut">登出</button>':''}
+  window.jxcAuth={
+    owner:OWNER,
+    email:()=>auth&&auth.currentUser&&auth.currentUser.email,
+    isOwner:()=>!!(auth&&auth.currentUser&&auth.currentUser.email&&auth.currentUser.email.toLowerCase()===OWNER),
+    members:async()=>{const s=await fdb.ref('jxcMembers').get();const v=s.val()||{};return Object.keys(v).filter(k=>v[k]===true).map(k=>k.replace(/,/g,'.'))},
+    addMember:e=>fdb.ref('jxcMembers/'+mkey(e)).set(true),
+    removeMember:e=>fdb.ref('jxcMembers/'+mkey(e)).remove()
+  };
+  if(!auth)return;
+  document.addEventListener('click',e=>{
+    if(e.target.id==='signIn'){auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(err=>{
+      if(err&&err.code==='auth/popup-blocked'||err&&err.code==='auth/operation-not-supported-in-this-environment')auth.signInWithRedirect(new firebase.auth.GoogleAuthProvider());
+      else if(!(err&&err.code==='auth/popup-closed-by-user'))alert('登入失敗：'+(err&&err.message||err))})}
+    if(e.target.id==='signOut'){auth.signOut().then(()=>location.reload())}
+  });
+  auth.onAuthStateChanged(async u=>{
+    userBox(u);
+    if(!u){gate('<h2>小團隊進銷存</h2><p class="lead">請用公司同仁的 Google 帳號登入。</p><button type="button" class="btn primary" id="signIn">用 Google 帳號登入</button>');return}
+    if(opened)return;
+    let ok=window.jxcAuth.isOwner();
+    if(!ok){try{const s=await fdb.ref('jxcMembers/'+mkey(u.email)).get();ok=s.val()===true}catch(e){ok=false}}
+    if(!ok){gate('<h2>還不能使用</h2><p class="lead">'+esc2(u.email)+' 還沒有被加入使用名單。請管理者在「權限設定」加入這個帳號，然後重新整理頁面。</p><button type="button" class="btn" id="signOut">換一個帳號</button>');return}
+    opened=true;resolveDb(db);
+  });
 })();
 </script>
 <script>
@@ -334,7 +368,6 @@ setInterval(()=>{if(stale&&ready&&!busy()){stale=false;renderRole();renderTabs()
 async function connect(){
   S={};
   $('#main').innerHTML='<p class="empty">正在讀取雲端資料…</p>';
-  for(let t=0;t<50&&!window.claude;t++)await sleep(200);
   db=window.claude&&await window.claude.use('db');
   if(!db){$('#main').innerHTML='<p class="empty">連不上 Firebase，請檢查網路後重新整理頁面。</p>';$('#syncTag').textContent='線上版・未連線';return}
   try{const user=await window.claude.use('user');if(user&&user.can&&(await user.can('data.write'))===false){readOnly=true}}catch(e){}
@@ -356,7 +389,7 @@ async function connect(){
 
 let page='home';
 try{page=localStorage.getItem(KEY+'-page')||'home'}catch(e){}
-if(!PAGES.some(p=>p[0]===page)&&page!=='perm')page='home';
+if(!PAGES.some(p=>p[0]===page)&&page!=='perm'&&page!=='count')page='home';
 const hist={side:'SO',name:'',from:'',to:'',item:''};
 
 const $=s=>document.querySelector(s);
@@ -372,19 +405,23 @@ function nextNo(kind,date){const p=kind+'-'+date.replace(/-/g,'')+'-';const n=S.
 function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,2200)}
 
 function effDate(d){const st=d.steps||[];if(d.kind==='PO'&&st[1])return st[1].at;if(d.kind==='SO'&&st[2])return st[2].at;return d.date}
+// 盤點：S.count={date,qty:{itemId:數量}}；盤點日當天及之後的單據才會加減在盤點數量上。
+const baseQty=i=>S.count?(+S.count.qty[i.id]||0):(+i.open||0);
+const afterCount=dt=>!S.count||dt>=S.count.date;
 function stockUntil(to,from){
-  const m={};S.items.forEach(i=>m[i.id]={in:0,out:0,bal:+i.open||0});
-  S.docs.forEach(d=>{if(!counts(d))return;const dt=effDate(d);if(to&&dt>to)return;const inR=!from||dt>=from;
+  const useBase=!!S.count&&(!to||to>=S.count.date);
+  const m={};S.items.forEach(i=>m[i.id]={in:0,out:0,bal:useBase?baseQty(i):(+i.open||0)});
+  S.docs.forEach(d=>{if(!counts(d))return;const dt=effDate(d);if(to&&dt>to)return;const inR=!from||dt>=from;const inBal=!useBase||dt>=S.count.date;
     d.lines.forEach(l=>{const r=m[l.item];if(!r)return;let a=0,b=0;
       if(d.kind==='PO')a=l.qty;else if(d.kind==='MO'){if(l.dir==='use')b=l.qty;else a=l.qty}
       else if(d.kind==='EX'){b=l.qty;a=l.ret||0}else if(d.kind==='SO')b=l.qty;
-      r.bal+=a-b;if(inR){if(d.kind==='EX')r.out+=b-a;else{r.in+=a;r.out+=b}}})});
+      if(inBal)r.bal+=a-b;if(inR){if(d.kind==='EX')r.out+=b-a;else{r.in+=a;r.out+=b}}})});
   return m;
 }
 function stock(){
   const m={};
-  S.items.forEach(i=>m[i.id]={open:+i.open||0,po:0,use:0,made:0,exOut:0,exRet:0,so:0});
-  S.docs.forEach(d=>{if(!counts(d))return;d.lines.forEach(l=>{const r=m[l.item];if(!r)return;
+  S.items.forEach(i=>m[i.id]={open:baseQty(i),po:0,use:0,made:0,exOut:0,exRet:0,so:0});
+  S.docs.forEach(d=>{if(!counts(d)||!afterCount(effDate(d)))return;d.lines.forEach(l=>{const r=m[l.item];if(!r)return;
     if(d.kind==='PO')r.po+=l.qty;
     else if(d.kind==='MO'){if(l.dir==='use')r.use+=l.qty;else r.made+=l.qty}
     else if(d.kind==='EX'){r.exOut+=l.qty;r.exRet+=l.ret||0}
@@ -394,7 +431,7 @@ function stock(){
 }
 
 function renderTabs(){
-  $('#tabs').innerHTML=PAGES.concat(role==='admin'?[['perm','權限設定']]:[]).map(([k,t])=>`<button type="button" data-p="${k}" ${k===page?'aria-current="page"':''}>${t}</button>`).join('');
+  $('#tabs').innerHTML=PAGES.concat(can('items')?[['count','盤點重設']]:[]).concat(role==='admin'?[['perm','權限設定']]:[]).map(([k,t])=>`<button type="button" data-p="${k}" ${k===page?'aria-current="page"':''}>${t}</button>`).join('');
 }
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-p]');if(!b)return;go(b.dataset.p)});
 function go(p){page=p;editing=null;try{localStorage.setItem(KEY+'-page',p)}catch(e){}renderTabs();render();window.scrollTo(0,0)}
@@ -410,7 +447,8 @@ function render(){
   else if(page==='items')m.innerHTML=itemsHTML();
   else if(page==='contacts')m.innerHTML=contactsHTML();
   else if(page==='bom')m.innerHTML=bomPageHTML();
-  else if(page==='perm')m.innerHTML=role==='admin'?permHTML():'<p class="empty">需要管理者身分。</p>';
+  else if(page==='count')m.innerHTML=can('items')?countHTML():'<p class="empty">沒有盤點的權限。</p>';
+  else if(page==='perm'){m.innerHTML=role==='admin'?permHTML():'<p class="empty">需要管理者身分。</p>';if(role==='admin')loadMembers()}
 }
 
 /* ---------- 庫存總表 ---------- */
@@ -424,7 +462,7 @@ function homeHTML(){
   const out=S.docs.filter(d=>d.kind==='EX'&&!d.returned).reduce((a,d)=>a+d.lines.reduce((b,l)=>b+l.qty,0),0);
   const rows=S.items.filter(i=>homeFilter==='all'||i.type===homeFilter).map(i=>{const r=st[i.id],isLow=r.cur<(+i.safety||0);
     return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td>${i.type}</td><td class="n">${fmt(r.open)}</td><td class="n">${fmt(r.po)}</td><td class="n">${fmt(r.use)}</td><td class="n">${fmt(r.made)}</td><td class="n">${fmt(r.exOut)}</td><td class="n">${fmt(r.exRet)}</td><td class="n">${fmt(r.so)}</td><td class="n"><b>${fmt(r.cur)}</b> ${esc(i.unit)}</td><td class="n">${fmt(i.safety)}</td><td>${isLow?'<span class="pill warn">需補貨</span>':'<span class="pill ok">正常</span>'}</td></tr>`}).join('');
-  return `<div><h2>庫存總表</h2><p class="lead">所有數字都從各張單據自動算出來，不用手動改庫存。進貨是半成品，生產時領用半成品、完工變成品。資料存在雲端，大家開同一個網址看到的是同一份，有人改了會自動更新。</p></div>
+  return `<div><h2>庫存總表</h2><p class="lead">所有數字都從各張單據自動算出來，不用手動改庫存。進貨是半成品，生產時領用半成品、完工變成品。資料存在雲端，大家開同一個網址看到的是同一份，有人改了會自動更新。${S.count?`<br><b>目前庫存從 ${S.count.date} 的盤點數量起算</b>，之前的單據只留作歷史紀錄。`:''}</p></div>
   <div class="tiles">
     <div class="tile ${low.length?'alert':''}"><span class="k">需補貨品項</span><span class="v">${low.length}</span></div>
     <div class="tile"><span class="k">客戶未收款</span><span class="v">${money(unpaid)}</span></div>
@@ -437,7 +475,7 @@ function homeHTML(){
   <section class="panel">
     <div class="row between"><div class="seg" id="hf">${[['all','全部'],['半成品','半成品'],['成品','成品']].map(([k,t])=>`<button type="button" data-f="${k}" aria-pressed="${homeFilter===k}">${t}</button>`).join('')}</div>
     <input id="hq" class="rowfilter" data-target="#stockBody" placeholder="搜尋料號或品名" style="max-width:220px"><span class="hint">現有 = 期初 + 採購入 − 生產領用 + 生產完工 − 外展帶出 + 外展歸還 − 出貨</span></div>
-    <div class="tablebox"><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th class="n">期初</th><th class="n">採購入</th><th class="n">生產領用</th><th class="n">生產完工</th><th class="n">外展帶出</th><th class="n">外展歸還</th><th class="n">出貨</th><th class="n">現有</th><th class="n">安全庫存</th><th>狀態</th></tr></thead><tbody id="stockBody">${rows}</tbody></table></div>
+    <div class="tablebox"><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th class="n">${S.count?'盤點 '+S.count.date.slice(5).replace('-','/'):'期初'}</th><th class="n">採購入</th><th class="n">生產領用</th><th class="n">生產完工</th><th class="n">外展帶出</th><th class="n">外展歸還</th><th class="n">出貨</th><th class="n">現有</th><th class="n">安全庫存</th><th>狀態</th></tr></thead><tbody id="stockBody">${rows}</tbody></table></div>
   </section>`;
 }
 document.addEventListener('click',e=>{const b=e.target.closest('#hf button');if(!b)return;homeFilter=b.dataset.f;render()});
@@ -896,6 +934,12 @@ function permHTML(){
     <div style="display:flex;flex-direction:column;gap:8px">${PERMS.map(([k,t])=>`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="pm-${k}" ${S.perm.staff[k]?'checked':''} style="width:auto">${t}</label>`).join('')}</div>
     <div><button type="submit" class="btn primary">存檔權限</button></div>
   </form>
+  <section class="panel" id="memberPanel">
+    <p class="sub" style="margin:0">可以登入的 Google 帳號</p>
+    <p class="hint">只有名單裡的帳號能打開這個系統。${window.jxcAuth&&jxcAuth.isOwner()?'':'只有 '+(window.jxcAuth?jxcAuth.owner:'')+' 可以修改名單。'}</p>
+    <ul id="memberList" style="margin:0;padding-left:20px"><li class="hint">讀取中…</li></ul>
+    <form class="row" id="memberForm"><input id="memberEmail" type="email" placeholder="例如：someone@gmail.com" style="max-width:280px"><button type="submit" class="btn primary">加入</button></form>
+  </section>
   <form class="panel" id="pinForm">
     <p class="sub">${S.perm.pin?'更改管理者密碼':'設定管理者密碼'}</p>
     <p class="hint">${S.perm.pin?'':'設定之後，打開檔案預設是一般人員，要輸入密碼才能切換成管理者。'}</p>
@@ -908,6 +952,20 @@ function permHTML(){
     ${S.audit.length?`<input class="rowfilter" id="aq" data-target="#auditBody" placeholder="搜尋單號、修改人" style="max-width:260px"><div class="tablebox"><table><thead><tr><th>時間</th><th>單號</th><th>動作</th><th>修改人</th><th>原因</th><th>變更內容</th></tr></thead><tbody id="auditBody">${S.audit.slice(0,300).map(g=>`<tr class="${S.docs.some(x=>x.no===g.no)?'click':''}" ${S.docs.some(x=>x.no===g.no)?`data-doc="${g.no}"`:''}><td>${esc(g.at)}</td><td class="mono">${esc(g.no)}</td><td>${g.action==='刪除'?'<span class="pill bad">刪除</span>':'<span class="pill mid">修改</span>'}</td><td>${esc(g.by)}</td><td>${esc(g.reason||'')}</td><td style="white-space:normal">${g.changes.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">目前還沒有修改或刪除紀錄。</p>'}
   </section>`;
 }
+async function loadMembers(){
+  const ul=$('#memberList');if(!ul||!window.jxcAuth)return;
+  const own=jxcAuth.isOwner();
+  try{const list=await jxcAuth.members();
+    ul.innerHTML=`<li><b>${esc(jxcAuth.owner)}</b>（擁有者）</li>`+list.filter(e=>e!==jxcAuth.owner).map(e=>`<li>${esc(e)} ${own?`<button type="button" class="link" data-rmmember="${esc(e)}">移除</button>`:''}</li>`).join('')}
+  catch(err){ul.innerHTML=`<li><b>${esc(jxcAuth.owner)}</b>（擁有者）</li><li class="hint">名單只有擁有者看得到。</li>`}
+  $('#memberForm').hidden=!own;
+}
+document.addEventListener('click',async e=>{const em=e.target.dataset&&e.target.dataset.rmmember;if(!em)return;
+  if(!confirm('確定移除 '+em+'？移除後這個帳號就打不開系統。'))return;
+  try{await jxcAuth.removeMember(em);toast('已移除 '+em);loadMembers()}catch(err){toast('移除失敗：只有擁有者可以修改名單')}});
+document.addEventListener('submit',async e=>{if(e.target.id!=='memberForm')return;e.preventDefault();
+  const em=$('#memberEmail').value.trim().toLowerCase();if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){toast('請輸入正確的 Email');return}
+  try{await jxcAuth.addMember(em);$('#memberEmail').value='';toast('已加入 '+em);loadMembers()}catch(err){toast('加入失敗：只有擁有者可以修改名單')}});
 document.addEventListener('submit',e=>{
   if(e.target.id==='permForm'){e.preventDefault();if(role!=='admin')return;PERMS.forEach(([k])=>S.perm.staff[k]=$('#pm-'+k).checked);save();toast('已存檔權限');return}
   if(e.target.id==='pinForm'){e.preventDefault();if(role!=='admin')return;const a=$('#pin1').value,b=$('#pin2').value;
@@ -969,6 +1027,42 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('submit',e=>{if(e.target.id!=='pwForm')return;e.preventDefault();
   if(hashPw($('#pwIn').value)===S.perm.pin){closeDoc();setRole('admin');toast('已切換成管理者')}else $('#pwErr').textContent='密碼不對，請再試一次。'});
+
+/* ---------- 盤點重設 ---------- */
+let countDate='';
+const dayBefore=ds=>{const d=new Date(ds+'T00:00:00');d.setDate(d.getDate()-1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+function countHTML(){
+  const date=countDate||today();
+  const sys=stockUntil(dayBefore(date));
+  const cur=S.count;
+  const rows=S.items.map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td>${i.type}</td><td class="n">${fmt(sys[i.id].bal)}</td><td class="n"><input class="cnt" data-id="${esc(i.id)}" type="number" step="any" value="${sys[i.id].bal}" style="max-width:110px;text-align:right"></td><td>${esc(i.unit)}</td></tr>`).join('');
+  return `<div><h2>盤點重設</h2><p class="lead">在盤點日把實際點到的數量填進來，存檔後庫存就從這一天重新起算。盤點日當天和之後的單據會加減在盤點數量上，之前的單據不會被刪掉，只是不再影響庫存，歷史查詢還是看得到。</p></div>
+  ${cur?`<section class="panel"><p class="sub" style="margin:0">目前的盤點：<b>${esc(cur.date)}</b>（${esc(cur.at||'')} ${esc(cur.by||'')} 存檔，共 ${Object.keys(cur.qty).length} 項）</p>
+    <div class="row"><button type="button" class="btn" id="countClear">取消盤點，改回原本的期初計算</button></div></section>`:''}
+  <form class="panel" id="countForm">
+    <div class="grid-f"><label class="f">盤點日（這一天開始營業前的數量）<input type="date" id="countDate" value="${date}" required></label>
+    <label class="f">盤點人<input id="countBy" placeholder="例如：小美"></label></div>
+    <p class="hint">「系統數量」是盤點日前一天結束時系統算出的庫存，已經先填進「實際數量」；只要改有差異的品項就好。</p>
+    <input class="rowfilter" data-target="#countBody" placeholder="搜尋料號或品名" style="max-width:240px">
+    <div class="tablebox"><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th class="n">系統數量</th><th class="n">實際數量</th><th>單位</th></tr></thead><tbody id="countBody">${rows}</tbody></table></div>
+    <div class="row"><button type="submit" class="btn primary">存檔盤點，庫存從這天重新起算</button></div>
+  </form>`;
+}
+document.addEventListener('change',e=>{if(e.target.id==='countDate'&&page==='count'){countDate=e.target.value;render()}});
+document.addEventListener('submit',e=>{if(e.target.id!=='countForm')return;e.preventDefault();if(!can('items'))return;
+  const date=$('#countDate').value;if(!date){toast('請選盤點日');return}
+  const qty={};document.querySelectorAll('.cnt').forEach(x=>{qty[x.dataset.id]=x.value===''?0:+x.value});
+  const by=$('#countBy').value.trim()||(role==='admin'?'管理者':'一般人員');
+  const before=S.count?S.count.date:'無';
+  S.count={date,qty,at:new Date().toLocaleString('zh-TW',{hour12:false}),by};
+  S.audit.unshift({no:'盤點',action:'修改',at:S.count.at,by,reason:'盤點重設',changes:['盤點日：'+before+' → '+date]});
+  save();countDate='';go('home');toast('已存檔盤點，庫存從 '+date+' 重新起算')});
+document.addEventListener('click',e=>{if(e.target.id!=='countClear'||!can('items'))return;
+  if(!confirm('確定取消盤點嗎？庫存會改回用原本的期初數量計算。'))return;
+  const at=new Date().toLocaleString('zh-TW',{hour12:false});
+  S.audit.unshift({no:'盤點',action:'修改',at,by:role==='admin'?'管理者':'一般人員',reason:'取消盤點',changes:['盤點日：'+S.count.date+' → 無']});
+  delete S.count;save();render();toast('已取消盤點')});
+
 function afterLoad(){
 if(!S.perm)S.perm={pin:'',staff:{edit:false,del:false,back:false,items:false,bom:false,contactAdd:true,contactEdit:false,data:false}};
 try{role=sessionStorage.getItem('erp-role')||''}catch(e){role=''}
