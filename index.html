@@ -272,11 +272,15 @@ const SEED={"sources": [["L", "LINE詢問"], ["T", "電話詢問"], ["S", "蝦�
 
 const FLOW={
   PO:[{k:'order',t:'下單',done:'已下單'},{k:'recv',t:'到貨驗收',done:'已到貨'},{k:'pay',t:'付款',done:'已付款'}],
-  SO:[{k:'order',t:'接單',done:'已接單'},{k:'ready',t:'備貨完成',done:'已備貨'},{k:'ship',t:'出貨',done:'已出貨'},{k:'pay',t:'收款',done:'已收款'}]
+  SO:[{k:'order',t:'接單',done:'已接單'},{k:'ready',t:'備貨完成',done:'已備貨'},{k:'ship',t:'出貨',done:'已出貨'},{k:'pay',t:'收款',done:'已收款'}],
+  XF:[{k:'order',t:'接單',done:'已接單'},{k:'ready',t:'備貨完成',done:'已備貨'},{k:'ship',t:'出貨',done:'已出貨'},{k:'arrive',t:'到貨確認',done:'已到貨'}]
 };
+// 調撥單是銷貨單的一種（d.xfer）：一樣出貨扣庫存，但不算營收、不收款，最後一步是到貨確認。
+const flowOf=d=>d.xfer?FLOW.XF:FLOW[d.kind];
+const PAY_METHODS=['現金','匯款','支票','LINE Pay','刷卡','其他'];
 const STOCK_AT={PO:2,SO:3};
-const stepN=d=>FLOW[d.kind]?(d.steps||[]).length:0;
-const flowDone=d=>!FLOW[d.kind]||stepN(d)>=FLOW[d.kind].length;
+const stepN=d=>flowOf(d)?(d.steps||[]).length:0;
+const flowDone=d=>!flowOf(d)||stepN(d)>=flowOf(d).length;
 const counts=d=>!STOCK_AT[d.kind]||stepN(d)>=STOCK_AT[d.kind];
 function migrate(){S.docs.forEach(d=>{if(!FLOW[d.kind]||d.steps)return;const F=FLOW[d.kind];
   d.steps=F.map(()=>({at:d.date,by:''}));if(d.kind==='SO'&&(d.paid||0)<amount(d))d.steps.pop()})}
@@ -422,7 +426,7 @@ const item=id=>S.items.find(i=>i.id===id)||{name:'(已刪除品項)',code:'',uni
 const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 const exSales=d=>d.returned?d.lines.reduce((a,l)=>a+(l.qty-(l.ret||0))*(l.price??item(l.item).price??0),0):0;
 const amount=d=>d.lines.reduce((a,l)=>a+(l.qty||0)*(l.price||0),0)+(d.fee||0)+(d.discount||0);
-function payState(d){const a=amount(d),p=d.paid||0;if(p>=a&&a>0)return['已收','ok'];if(p>0)return['部分收','mid'];return['未收','bad']}
+function payState(d){if(d.xfer)return['調撥','mid'];const a=amount(d),p=d.paid||0;if(p>=a&&a>0)return['已收','ok'];if(p>0)return['部分收','mid'];return['未收','bad']}
 function nextNo(kind,date){const p=kind+'-'+date.replace(/-/g,'')+'-';const n=S.docs.filter(d=>d.no.startsWith(p)).reduce((m,d)=>Math.max(m,parseInt(d.no.slice(p.length))||0),0)+1;return p+String(n).padStart(2,'0')}
 function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,2200)}
 
@@ -478,8 +482,8 @@ let homeFilter='all';const fc={from:'',to:'',days:30,only:false};
 function homeHTML(){
   const st=stock(),mon=today().slice(0,7);
   const low=S.items.filter(i=>st[i.id].cur<(+i.safety||0));
-  const unpaid=S.docs.filter(d=>d.kind==='SO').reduce((a,d)=>a+Math.max(0,amount(d)-(d.paid||0)),0);
-  const sales=S.docs.filter(d=>d.kind==='SO'&&d.date.startsWith(mon)).reduce((a,d)=>a+amount(d),0);
+  const unpaid=S.docs.filter(d=>d.kind==='SO'&&!d.xfer).reduce((a,d)=>a+Math.max(0,amount(d)-(d.paid||0)),0);
+  const sales=S.docs.filter(d=>d.kind==='SO'&&!d.xfer&&d.date.startsWith(mon)).reduce((a,d)=>a+amount(d),0);
   const waitRecv=S.docs.filter(d=>d.kind==='PO'&&stepN(d)<2).length,waitShip=S.docs.filter(d=>d.kind==='SO'&&stepN(d)<3).length;
   const out=S.docs.filter(d=>d.kind==='EX'&&!d.returned).reduce((a,d)=>a+d.lines.reduce((b,l)=>b+l.qty,0),0);
   const rows=S.items.filter(i=>homeFilter==='all'||i.type===homeFilter).map(i=>{const r=st[i.id],isLow=r.cur<(+i.safety||0);
@@ -575,18 +579,20 @@ function kindHTML(kind){
   const parties=[...new Set([...(kind==='SO'?S.customers.map(c=>c.name):kind==='PO'?S.vendors.map(v=>v.name):[]),...S.docs.filter(d=>d.kind===kind).map(d=>d.party)])];
   const all=S.docs.filter(d=>d.kind===kind),lf=listFilter[kind]||'all';
   const docs=all.filter(d=>lf==='all'||(lf==='open'?!flowDone(d):flowDone(d))).sort((a,b)=>b.no.localeCompare(a.no));
-  const head=`<tr><th>單號</th><th>日期</th><th>${k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='SO'?'<th>收款</th>':''}${FLOW[kind]?'<th>流程進度</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
+  const head=`<tr><th>單號</th>${FLOW[kind]?'<th>流程進度</th>':''}${kind==='SO'?'<th>收款</th>':''}<th>日期</th><th>${kind==='SO'?'客戶／調撥地點':k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>item(l.item).name+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'?payState(d):null;
-    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.custom?' <span class="pill warn">客訂</span>':''}</td><td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${money(amount(d))}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span></td>`:''}${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
+    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
   const body=kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'');
-  return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶時填一張，收款可以分次登記。'}[kind]}</p></div>
+  return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶或調撥到其他地點時填一張，收款可以分次登記。'}[kind]}</p></div>
     <button type="button" class="btn primary" id="toggleForm">${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
   <form class="panel" id="docForm" data-kind="${kind}" ${formOpen?'':'hidden'}>
     <div class="grid-f">
       <label class="f">${editing?'修改單號':'單號（自動）'}<input id="f-no" value="${editing||nextNo(kind,today())}" disabled></label>
       <label class="f">日期<input id="f-date" type="date" value="${today()}"></label>
-      <label class="f">${k.party}<input id="f-party" list="f-parties" placeholder="${kind==='SO'?'打字會從顧客資料提示':kind==='PO'?'打字會從廠商資料提示':'打字會自動提示以前填過的'}"><datalist id="f-parties">${parties.map(p=>`<option value="${esc(p)}">`).join('')}</datalist></label>
+      ${kind==='SO'?`<label class="f">類型<select id="f-type"><option value="sale">銷貨</option><option value="xfer">調撥</option></select></label>
+      <label class="f">接單人員<input id="f-taker" list="f-takers" placeholder="選擇或輸入名字"><datalist id="f-takers">${[...new Set(S.docs.flatMap(x=>[x.taker,...(x.steps||[]).map(s=>s.by)]).filter(Boolean))].map(n=>`<option value="${esc(n)}">`).join('')}</datalist></label>`:''}
+      <label class="f"><span id="f-partyLbl">${k.party}</span><input id="f-party" list="f-parties" placeholder="${kind==='SO'?'打字會從顧客資料提示':kind==='PO'?'打字會從廠商資料提示':'打字會自動提示以前填過的'}"><datalist id="f-parties">${parties.map(p=>`<option value="${esc(p)}">`).join('')}</datalist></label>
       ${kind==='SO'?'<label class="f">到貨期間（開始）<input id="f-arr1" type="date"></label><label class="f">到貨期間（結束，可留空）<input id="f-arr2" type="date"></label>':''}
       ${editing?'<label class="f">修改人（必填）<input id="f-editor" list="st-bys2"></label><label class="f">修改原因<input id="f-reason" placeholder="例如：客戶改數量"></label>':''}
     </div>
@@ -628,6 +634,7 @@ document.addEventListener('input',e=>{if(!e.target.classList.contains('rowfilter
 function showPartyInfo(){
   const box=$('#partyInfo');if(!box)return;const name=$('#f-party').value.trim();
   if(!name){box.hidden=true;return}
+  if($('#f-type')&&$('#f-type').value==='xfer'){box.hidden=true;return}
   const isSO=page==='SO',c=(isSO?S.customers:S.vendors).find(x=>x.name===name);
   const f=(l,v,cls)=>v?`<div class="${cls||''}"><span>${l}</span>${esc(v)}</div>`:'';
   box.hidden=false;
@@ -659,28 +666,35 @@ document.addEventListener('submit',e=>{
     const ch=[];if(d.date!==date)ch.push(`日期：${d.date} → ${date}`);if(d.party!==(party||'—'))ch.push(`${k.party}：${d.party} → ${party||'—'}`);
     if(sum(d.lines)!==sum(lines))ch.push(`品項：${sum(d.lines)} → ${sum(lines)}`);
     const cu=kind==='SO'?customVal():null,av=kind==='SO'?arrVal():null;
+    const ty=kind==='SO'?$('#f-type').value==='xfer':null,tk=kind==='SO'?$('#f-taker').value.trim():null;
+    if(ty!=null&&!!d.xfer!==ty)ch.push(`類型：${d.xfer?'調撥':'銷貨'} → ${ty?'調撥':'銷貨'}`);
+    if(tk!=null&&(d.taker||'')!==tk)ch.push(`接單人員：${d.taker||'—'} → ${tk||'—'}`);
     if(av&&arrText(d)!==arrText(av))ch.push(`到貨期間：${arrText(d)||'—'} → ${arrText(av)||'—'}`);
     if(cu&&(!!d.custom!==cu.custom||(d.spec||'')!==cu.spec))ch.push(`客訂：${d.custom?'是':'否'}${d.spec?'（'+d.spec+'）':''} → ${cu.custom?'是':'否'}${cu.spec?'（'+cu.spec+'）':''}`);
     if(!ch.length){err.textContent='沒有任何變更。';return}
     const entry={at:new Date().toLocaleString('zh-TW',{hour12:false}),by,reason:$('#f-reason').value.trim(),changes:ch};
     (d.log=d.log||[]).push(entry);S.audit.unshift({no:d.no,action:'修改',...entry});
     d.date=date;d.party=party||'—';d.lines=lines;if(d.steps&&d.steps[0])d.steps[0].at=date;
+    if(ty!=null){if(ty)d.xfer=true;else delete d.xfer;if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk;}
     if(av){if(av.arr)d.arr=av.arr;else delete d.arr;if(av.arr2)d.arr2=av.arr2;else delete d.arr2}
     if(cu){if(cu.custom){d.custom=true;d.spec=cu.spec;if(!d.pk)d.pk=newKey('p')}else{delete d.custom;delete d.spec}}
     save();const no=d.no;editing=null;formOpen=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
   const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};
-  if(kind==='SO'){doc.paid=0;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2}
+  if(kind==='SO'){doc.paid=0;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2;
+    if($('#f-type').value==='xfer')doc.xfer=true;const tk=$('#f-taker').value.trim();if(tk)doc.taker=tk}
   const cu=kind==='SO'?customVal():null;
   if(cu&&cu.custom){doc.custom=true;doc.spec=cu.spec;doc.pk=newKey('p');if(formPhotos.length){doc.photos=formPhotos.length;putPhotos(doc.pk,formPhotos.slice())}}
   formPhotos=[];
   if(kind==='EX')doc.returned=false;
-  if(FLOW[kind])doc.steps=[{at:date,by:''}];
+  if(FLOW[kind])doc.steps=[{at:date,by:doc.taker||''}];
   S.docs.push(doc);save();formOpen=false;render();toast('已存檔 '+doc.no);openDoc(doc.no);
 });
 
 /* ---------- 客訂與成品照片 ---------- */
 // 照片另外存在雲端 jxc/photos/<單據的 pk>，打開單據時才讀，不放進備份檔。
 let formPhotos=[];const PH={};
+function typeUI(){const x=$('#f-type')&&$('#f-type').value==='xfer';const l=$('#f-partyLbl');if(l)l.textContent=x?'調撥到（地點）':KINDS.SO.party;if(x&&$('#partyInfo'))$('#partyInfo').hidden=true}
+document.addEventListener('change',e=>{if(e.target.id==='f-type'){typeUI();if(e.target.value!=='xfer')showPartyInfo()}});
 function arrVal(){const a=$('#f-arr1').value,b=$('#f-arr2').value;return a||b?{arr:a||b,arr2:a&&b&&b!==a?b:''}:{arr:'',arr2:''}}
 function arrText(d){const f=x=>x?x.replace(/-/g,'/'):'';return d.arr?f(d.arr)+(d.arr2?' ～ '+f(d.arr2):''):''}
 function customVal(){const c=$('#f-custom');return c?{custom:c.checked,spec:$('#f-spec').value.trim()}:null}
@@ -716,6 +730,7 @@ let delArm=false;
 function fillEdit(){
   const d=S.docs.find(x=>x.no===editing);if(!d)return;
   $('#f-date').value=d.date;$('#f-party').value=d.party==='—'?'':d.party;showPartyInfo();
+  if($('#f-type')){$('#f-type').value=d.xfer?'xfer':'sale';$('#f-taker').value=d.taker||'';typeUI()}
   if($('#f-arr1')){$('#f-arr1').value=d.arr||'';$('#f-arr2').value=d.arr2||''}
   if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom}
   const names=[...new Set(S.docs.flatMap(x=>(x.log||[]).map(g=>g.by).concat((x.steps||[]).map(s=>s.by))).filter(Boolean))];
@@ -735,15 +750,16 @@ function openDoc(no){
     <div class="grid-f"><label class="f">捐款金額<input id="donIn" type="number" min="0" step="any" value="${d.donation||0}"></label></div>
     ${d.returned?`<div class="row"><span>銷售金額 <b class="mono">${money(exSales(d))}</b>，捐款 <b class="mono">${money(d.donation)}</b>，合計收入 <b class="mono">${money(exSales(d)+(d.donation||0))}</b></span></div>`:''}
     <div class="row"><button type="button" class="btn primary" id="saveRet">存檔</button><span class="hint">（帶出 − 歸還）× 售價 = 銷售金額</span></div>`;
-  if(d.kind==='SO'){const a=amount(d),ps=payState(d);action=`<div class="row"><span>應收 <b class="mono">${money(a)}</b>，已收 <b class="mono">${money(d.paid)}</b>，未收 <b class="mono">${money(a-(d.paid||0))}</b></span><span class="pill ${ps[1]}">${ps[0]}</span></div>${ps[0]==='已收'?'':`<div class="row"><label class="f" style="flex:1;max-width:220px">本次收款金額<input id="payIn" type="number" min="0" inputmode="decimal" value="${a-(d.paid||0)}"></label><button type="button" class="btn primary" id="savePay" style="align-self:flex-end">登記收款</button></div>`}`}
+  if(d.kind==='SO'&&!d.xfer){const a=amount(d),ps=payState(d);action=`<div class="row"><span>應收 <b class="mono">${money(a)}</b>，已收 <b class="mono">${money(d.paid)}</b>，未收 <b class="mono">${money(a-(d.paid||0))}</b></span><span class="pill ${ps[1]}">${ps[0]}</span></div>${ps[0]==='已收'?'':`<div class="row"><label class="f" style="flex:1;max-width:220px">本次收款金額<input id="payIn" type="number" min="0" inputmode="decimal" value="${a-(d.paid||0)}"></label><label class="f" style="max-width:160px">收款方式<select id="payMethod">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label><button type="button" class="btn primary" id="savePay" style="align-self:flex-end">登記收款</button></div>`}`}
+  if(d.kind==='SO'&&!d.xfer&&d.pays&&d.pays.length)action+=`<div class="hint">收款紀錄：${d.pays.map(p=>`${esc(p.at)} ${esc(p.method)} ${money(p.amt)}`).join('；')}</div>`;
   $('#overlay').innerHTML=`<div class="sheetbar" data-no="${d.no}">
     <div class="row between"><b class="mono">${d.no}</b><div class="row">${can('edit')?'<button type="button" class="btn small" id="editDoc">修改這張單</button>':''}${can('del')?'<button type="button" class="btn danger small" id="delDoc">刪除這張單</button>':''}<button type="button" class="btn small" id="closeDoc">關閉</button></div></div>
-    ${d.custom?customPanel(d):''}${flowPanel(d)}${action}${logHTML(d)}<div class="row"><button type="button" class="btn" id="printDoc">列印${d.kind==='SO'?'出貨單':''}／存成 PDF</button>${d.kind==='SO'?'<button type="button" class="btn primary" id="printRcpt">列印收據</button>':''}<span class="hint">列印視窗選 A4、直向；要存 PDF 就在印表機選「另存為 PDF」。</span></div></div>${paperHTML(d)}${d.kind==='SO'?receiptHTML(d):''}`;
+    ${d.custom?customPanel(d):''}${flowPanel(d)}${action}${logHTML(d)}<div class="row"><button type="button" class="btn" id="printDoc">列印${d.xfer?'調撥單':d.kind==='SO'?'出貨單':''}／存成 PDF</button>${d.kind==='SO'&&!d.xfer?'<button type="button" class="btn primary" id="printRcpt">列印收據</button>':''}<span class="hint">列印視窗選 A4、直向；要存 PDF 就在印表機選「另存為 PDF」。</span></div></div>${paperHTML(d)}${d.kind==='SO'&&!d.xfer?receiptHTML(d):''}`;
   $('#overlay').hidden=false;document.body.style.overflow='hidden';
   if(d.custom)showPhotos(d);
 }
 function paperHTML(d){
-  const k=KINDS[d.kind];let head,rows,foot='';
+  const k=d.xfer?{...KINDS.SO,name:'調撥單',party:'調撥到',sign:['出貨人','收貨人','主管']}:KINDS[d.kind];let head,rows,foot='';
   if(d.kind==='MO'){head='<th>區分</th><th>料號</th><th>品名</th><th>單位</th><th class="n">數量</th>';
     rows=d.lines.map(l=>`<tr><td>${l.dir==='use'?'領用半成品':'完工成品'}</td><td>${esc(item(l.item).code)}</td><td>${esc(item(l.item).name)}</td><td>${esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td></tr>`).join('');}
   else if(d.kind==='EX'){const pr=l=>l.price??item(l.item).price??0;head='<th>#</th><th>料號</th><th>品名</th><th class="n">帶出</th><th class="n">歸還</th><th class="n">售出</th><th class="n">售價</th><th class="n">金額</th>';
@@ -753,21 +769,21 @@ function paperHTML(d){
   else{head='<th>#</th><th>料號</th><th>品名</th><th>單位</th><th class="n">數量</th><th class="n">單價</th><th class="n">金額</th>';
     rows=d.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(item(l.item).code)}</td><td>${esc(item(l.item).name)}</td><td>${esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${fmt(l.price)}</td><td class="n">${fmt(l.qty*l.price)}</td></tr>`).join('');
     foot=(d.fee?`<tr><td colspan="6">運費</td><td class="n">${fmt(d.fee)}</td></tr>`:'')+(d.discount?`<tr><td colspan="6">折扣</td><td class="n">${fmt(d.discount)}</td></tr>`:'')+`<tr><td colspan="6">合計</td><td class="n">${fmt(amount(d))}</td></tr>`;
-    if(d.kind==='SO')foot+=`<tr><td colspan="6">已收</td><td class="n">${fmt(d.paid)}</td></tr><tr><td colspan="6">未收</td><td class="n">${fmt(amount(d)-(d.paid||0))}</td></tr>`;}
+    if(d.kind==='SO'&&!d.xfer)foot+=`<tr><td colspan="6">已收</td><td class="n">${fmt(d.paid)}</td></tr><tr><td colspan="6">未收</td><td class="n">${fmt(amount(d)-(d.paid||0))}</td></tr>`;}
   return `<div class="paper a4">
     <div class="ph"><div><div class="co"><b>${COMPANY.name}</b><br><span style="font-size:.85em;color:#555">${COMPANY.line}</span></div><h3>${k.name}</h3></div><div class="mono" style="color:var(--paper-ink)">${d.no}</div></div>
-    <div class="meta"><div><span>日期：</span>${d.date}</div><div><span>${k.party}：</span>${esc(d.party)}</div>${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
+    <div class="meta"><div><span>日期：</span>${d.date}</div><div><span>${k.party}：</span>${esc(d.party)}</div>${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>接單人員：</span>${esc(d.taker)}</div>`:''}${d.pays&&d.pays.length?`<div><span>收款方式：</span>${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
     <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody>${foot?`<tfoot>${foot}</tfoot>`:''}</table>
     ${d.custom?`<div style="white-space:pre-wrap"><b>客訂說明：</b>${esc(d.spec||'')}</div>`:''}
     <div class="grow"></div>
     <div class="sign">${k.sign.map(s=>`<div>${s}</div>`).join('')}</div>
     <div class="foot">本單由系統自動產生</div></div>`;
 }
-function progHTML(d){const F=FLOW[d.kind];if(!F)return '';const n=stepN(d);
+function progHTML(d){const F=flowOf(d);if(!F)return '';const n=stepN(d);
   const label=n>=F.length?F[F.length-1].done:F[n-1]?F[n-1].done:'未開始';
   return `<span class="prog">${F.map((f,i)=>`<i class="${i<n?'on':''}"></i>`).join('')}<span class="pill ${n>=F.length?'ok':'mid'}">${label}</span></span>${n<F.length?` <span class="hint">下一步：${F[n].t}</span>`:''}`}
 function flowPanel(d){
-  const F=FLOW[d.kind];if(!F)return '';const n=stepN(d);
+  const F=flowOf(d);if(!F)return '';const n=stepN(d);
   const handlers=[...new Set(S.docs.flatMap(x=>(x.steps||[]).map(s=>s.by)).filter(Boolean))];
   let html=`<p class="sub">目前流程</p><ol class="steps">${F.map((f,i)=>{const st=d.steps[i];return `<li class="${i<n?'done':i===n?'cur':''}"><b>${i+1}. ${f.t}</b>${st?`${esc(st.at)}${st.by?'・'+esc(st.by):''}`:(i===n?'等待確認':'')}</li>`}).join('')}</ol>`;
   if(n<F.length){const nx=F[n];
@@ -777,6 +793,7 @@ function flowPanel(d){
       ${nx.k==='ship'?`<label class="f">交貨方式<select id="st-method">${['貨運','親送','自取','郵寄'].map(m=>`<option ${d.ship&&d.ship.method===m?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="f">物流公司<input id="st-carrier" placeholder="例如：大榮、郵局" value="${esc(d.ship&&d.ship.carrier)}"></label>
       <label class="f">查貨號碼<input id="st-track" value="${esc(d.ship&&d.ship.track)}"></label>`:''}
+      ${nx.k==='pay'&&d.kind==='SO'?`<label class="f">收款方式<select id="st-pm">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
     </div>
     <div class="row"><button type="button" class="btn primary" id="stNext">確認「${nx.t}」</button>
     ${nx.k==='recv'?'<span class="hint">確認到貨後，數量才會加進庫存。</span>':''}${nx.k==='ship'?'<span class="hint">確認出貨後，數量才會從庫存扣掉。</span>':''}${nx.k==='pay'&&d.kind==='SO'?'<span class="hint">確認收款會把未收金額記成已收；部分收款請用下面的「登記收款」。</span>':''}</div>`}
@@ -827,14 +844,15 @@ $('#overlay').addEventListener('click',e=>{
     S.audit.unshift({no:d.no,action:'刪除',at:new Date().toLocaleString('zh-TW',{hour12:false}),by:role==='admin'?'管理者':'一般人員',reason:'',changes:[d.party+'：'+d.lines.map(l=>item(l.item).name+'×'+l.qty).join('、')]});
     if(d.pk)db.doc('photos/'+d.pk).delete().catch(()=>{});
     S.docs=S.docs.filter(x=>x!==d);save();closeDoc();render();toast('已刪除 '+d.no);return}
-  if(e.target.id==='stNext'){const F=FLOW[d.kind],nx=F[stepN(d)];if(!nx)return;
+  if(e.target.id==='stNext'){const F=flowOf(d),nx=F[stepN(d)];if(!nx)return;
     d.steps.push({at:$('#st-at').value||today(),by:$('#st-by').value.trim()});
     if(nx.k==='ship')d.ship={method:$('#st-method').value,carrier:$('#st-carrier').value.trim(),track:$('#st-track').value.trim()};
-    if(nx.k==='pay'&&d.kind==='SO'&&(d.paid||0)<amount(d)){d.steps[d.steps.length-1].prevPaid=d.paid||0;d.paid=amount(d)}
-    save();render();openDoc(d.no);toast(d.no+' '+nx.done+(nx.k==='ship'?'，記得列印收據隨貨附上':''));return}
-  if(e.target.id==='stBack'){if(stepN(d)>1&&can('back')){const f=FLOW[d.kind][stepN(d)-1];{const st=d.steps.pop();if(st.prevPaid!=null)d.paid=st.prevPaid;}save();render();openDoc(d.no);toast('已退回，取消「'+f.t+'」')}return}
+    if(nx.k==='pay'&&d.kind==='SO'&&(d.paid||0)<amount(d)){const st=d.steps[d.steps.length-1],pm=$('#st-pm').value;st.prevPaid=d.paid||0;st.method=pm;
+      (d.pays=d.pays||[]).push({at:st.at,amt:amount(d)-(d.paid||0),method:pm,by:st.by,step:true});d.paid=amount(d)}
+    save();render();openDoc(d.no);toast(d.no+' '+nx.done+(nx.k==='ship'&&!d.xfer?'，記得列印收據隨貨附上':''));return}
+  if(e.target.id==='stBack'){if(stepN(d)>1&&can('back')){const f=flowOf(d)[stepN(d)-1];{const st=d.steps.pop();if(st.prevPaid!=null){d.paid=st.prevPaid;if(d.pays&&d.pays.length&&d.pays[d.pays.length-1].step)d.pays.pop()}}save();render();openDoc(d.no);toast('已退回，取消「'+f.t+'」')}return}
   if(e.target.id==='saveRet'){document.querySelectorAll('.ret').forEach((inp,i)=>{d.lines[i].ret=Math.max(0,Math.min(d.lines[i].qty,+inp.value||0));d.lines[i].price=+$('#prc-'+i).value||0});d.donation=+$('#donIn').value||0;d.returned=true;save();render();openDoc(d.no);toast('已登記歸還');return}
-  if(e.target.id==='savePay'){const v=+$('#payIn').value||0;if(v<=0)return;d.paid=(d.paid||0)+v;if(d.paid>=amount(d)&&stepN(d)===3)d.steps.push({at:today(),by:''});save();render();openDoc(d.no);toast('已登記收款 '+money(v));return}
+  if(e.target.id==='savePay'){const v=+$('#payIn').value||0;if(v<=0)return;d.paid=(d.paid||0)+v;(d.pays=d.pays||[]).push({at:today(),amt:v,method:$('#payMethod').value});if(d.paid>=amount(d)&&stepN(d)===3)d.steps.push({at:today(),by:''});save();render();openDoc(d.no);toast('已登記收款 '+money(v));return}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#overlay').hidden)closeDoc()});
 
@@ -858,7 +876,7 @@ function histHTML(){
 function renderHist(){
   const kind=hist.side,isSO=kind==='SO';
   const hq=(hist.q||'').trim().toLowerCase();
-  const docs=S.docs.filter(d=>d.kind===kind&&(!hist.name||d.party.includes(hist.name))&&(!hq||(d.no+' '+d.party+' '+d.lines.map(l=>ilabel(item(l.item))).join(' ')).toLowerCase().includes(hq))&&(!hist.from||d.date>=hist.from)&&(!hist.to||d.date<=hist.to)&&(!hist.item||d.lines.some(l=>l.item===hist.item))).sort((a,b)=>b.date.localeCompare(a.date));
+  const docs=S.docs.filter(d=>d.kind===kind&&!d.xfer&&(!hist.name||d.party.includes(hist.name))&&(!hq||(d.no+' '+d.party+' '+d.lines.map(l=>ilabel(item(l.item))).join(' ')).toLowerCase().includes(hq))&&(!hist.from||d.date>=hist.from)&&(!hist.to||d.date<=hist.to)&&(!hist.item||d.lines.some(l=>l.item===hist.item))).sort((a,b)=>b.date.localeCompare(a.date));
   let tq=0,ta=0,tp=0;
   const rows=docs.map(d=>{const ls=hist.item?d.lines.filter(l=>l.item===hist.item):d.lines;const q=ls.reduce((a,l)=>a+l.qty,0),a=ls.reduce((s,l)=>s+l.qty*l.price,0);tq+=q;ta+=a;
     const full=amount(d),un=full-(d.paid||0);tp+=isSO?un:0;const ps=isSO?payState(d):null;
