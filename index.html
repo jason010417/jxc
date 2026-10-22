@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>小團隊進銷存</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@400;700&display=swap">
 <style>
 /* Layout: top bar with page tabs, one working column below; documents open as an A4 sheet over the page */
 :root{
@@ -13,9 +13,9 @@
   --fg:#1c2624; --muted:#5d6b67; --accent:#1f5f5b; --accent-fg:#ffffff; --accent-soft:#dcebe8;
   --warn:#a3541a; --warn-soft:#f6e4d4; --ok:#2f6b3a; --ok-soft:#dfeedd; --bad:#a3302a; --bad-soft:#f6dcda;
   --paper:#ffffff; --paper-ink:#1a1a1a; --paper-line:#999999; --shade:rgba(20,30,28,.55);
-  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
-  --f-head:"Noto Serif TC","PMingLiU",serif;
-  --f-num:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --f-body:"DFKai-SB","BiauKai","標楷體","Kaiti TC","STKaiti","LXGW WenKai TC",serif;
+  --f-head:"DFKai-SB","BiauKai","標楷體","Kaiti TC","STKaiti","LXGW WenKai TC",serif;
+  --f-num:"DFKai-SB","BiauKai","標楷體","Kaiti TC","STKaiti","LXGW WenKai TC",serif;
   --r:8px;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
@@ -30,6 +30,7 @@
   color-scheme:dark}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+button,input,select,textarea{font-family:inherit}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.55}
 .wrap{max-width:1120px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 header.top{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
@@ -124,6 +125,11 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
 .rcpt .rc{font-size:1.4em}
 .rcpt .stamp{vertical-align:top;color:#666;font-size:1.2em}
 .rcpt .cap{font-size:1.3em;font-weight:700;letter-spacing:.05em}
+.rcpt .sbox{text-align:center;vertical-align:middle;padding:.3em}
+.rcpt .sbox img{max-width:90%;max-height:9em;object-fit:contain}
+.rcpt .seal{width:5.5em;padding:.2em}
+.rcpt .seal img{width:4.6em;height:4.6em;object-fit:contain;display:block;margin:auto}
+.stamp-prev{width:120px;height:90px;object-fit:contain;border:1px dashed var(--line);background:#fff}
 .pinfo{background:var(--accent-soft);border-radius:6px;padding:10px 14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:4px 18px;font-size:14px}
 .pinfo span{color:var(--muted);font-size:12px;margin-right:4px}
 .pinfo .full{grid-column:1/-1}
@@ -274,7 +280,7 @@ const COMPANY={name:'觀心園愛心庇護工場',line:'南投縣草屯鎮中正
 /* ---------- 線上同步：資料存在雲端，大家共用 ---------- */
 // Each item, document, customer, vendor and audit entry is one cloud document; everything else (BOM, permissions, flags) lives in erp/meta.
 const COLL={items:{key:e=>e.id},docs:{key:e=>e.no},customers:{key:e=>e._k},vendors:{key:e=>e._k},audit:{key:e=>e._k,desc:true}};
-let S=null,db=null,ready=false,readOnly=false,syncErr='';
+let S=null,db=null,ready=false,readOnly=false,syncErr='';const STAMPS={};
 const shadow=new Map(),remote={},pend=new Map(),inflight=new Set(),created=new Set();let order=[],running=0;
 Object.keys(COLL).forEach(k=>remote[k]=new Map());
 let metaData,got=new Set();
@@ -387,6 +393,7 @@ async function connect(){
       got.add(k);rebuild(k);onData();
     },fail);
   }
+  ['receipt','owner'].forEach(k=>db.doc('stamps/'+k).onSnapshot(snap=>{const d=snap.exists&&snap.data();if(d&&d.src)STAMPS[k]=d.src;else delete STAMPS[k];if(ready)scheduleRender()},()=>{}));
   db.doc('erp/meta').onSnapshot(snap=>{
     metaData=snap.exists?snap.data():null;
     if(!pend.has('erp/meta')&&!inflight.has('erp/meta')){if(snap.exists)shadow.set('erp/meta',canon(metaData));rebuildMeta()}
@@ -729,7 +736,6 @@ function partyInfo(d){
   return '';
 }
 function shipInfo(d){if(!d.ship)return '';const f=(l,v)=>v?`<div><span>${l}：</span>${esc(v)}</div>`:'';return f('交貨方式',d.ship.method)+f('物流',d.ship.carrier)+f('查貨號碼',d.ship.track)}
-function rocDate(iso){const [y,m,d]=iso.split('-').map(Number);return `民國${y-1911}年${m}月${d}日`}
 function capNum(n){n=Math.round(n);if(n===0)return '零';const D='零壹貳參肆伍陸柒捌玖',U=['','拾','佰','仟'],B=['','萬','億'];
   const groups=[];while(n>0){groups.push(n%10000);n=Math.floor(n/10000)}
   let out='';
@@ -745,11 +751,11 @@ function receiptHTML(d){
   const ls=d.lines.slice();if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<7)ls.push(null);const tot=amount(d);
   return `<p class="rcpt-label">收據（隨貨附上）</p><div class="paper rcpt"><table>
     <tr><td class="nb"></td><td class="nb rt" colspan="4" rowspan="2">免用統一發票收據</td><td class="nb" style="text-align:right">統一編號:</td><td class="nb" colspan="2" style="text-align:left">${esc(c.taxId||'')}</td></tr>
-    <tr><td class="nb"></td><td class="nb" style="text-align:right">日期:</td><td class="nb" colspan="2" style="text-align:left">${rocDate(date)}</td></tr>
+    <tr><td class="nb"></td><td class="nb" style="text-align:right">日期:</td><td class="nb" colspan="2" style="text-align:left">${date.replace(/-/g,'/')}</td></tr>
     <tr><td class="nb"></td><td class="nb rc" colspan="4" style="border-bottom:1px solid var(--paper-ink)">${esc(c.title||d.party)}</td><td class="nb rc" colspan="3" style="text-align:left">台照</td></tr>
     <tr><td colspan="2">品名</td><td>數量</td><td>單價</td><td>總價</td><td colspan="3">備註</td></tr>
-    ${ls.map((l,i)=>`<tr><td style="width:2.5em">${i+1}</td><td style="text-align:left;min-width:12em;white-space:normal">${l?esc(l.fee||item(l.item).name):''}</td><td>${l?fmt(l.qty):''}</td><td class="n">${l?fmt(l.price):''}</td><td class="n">${l?fmt(l.qty*l.price):''}</td>${i===0?'<td colspan="3" class="stamp">收據專用章</td>':i===1?'<td colspan="3" rowspan="6" class="nb" style="border:1px solid var(--paper-ink)"></td>':''}</tr>`).join('')}
-    <tr><td colspan="4">合計</td><td class="n">${fmt(tot)}</td><td colspan="3" rowspan="2" class="cap">銀貨兩訖</td></tr>
+    ${ls.map((l,i)=>`<tr><td style="width:2.5em">${i+1}</td><td style="text-align:left;min-width:12em;white-space:normal">${l?esc(l.fee||item(l.item).name):''}</td><td>${l?fmt(l.qty):''}</td><td class="n">${l?fmt(l.price):''}</td><td class="n">${l?fmt(l.qty*l.price):''}</td>${i===0?'<td colspan="3" class="stamp">收據專用章</td>':i===1?`<td colspan="3" rowspan="6" class="nb sbox" style="border:1px solid var(--paper-ink)">${STAMPS.receipt?`<img src="${STAMPS.receipt}" alt="收據章">`:''}</td>`:''}</tr>`).join('')}
+    <tr><td colspan="4">合計</td><td class="n">${fmt(tot)}</td><td colspan="2" rowspan="2" class="cap">銀貨兩訖</td><td rowspan="2" class="seal">${STAMPS.owner?`<img src="${STAMPS.owner}" alt="負責人章">`:''}</td></tr>
     <tr><td colspan="5" class="cap">合計新臺幣 ${capNum(tot)} 元整</td></tr>
   </table></div>`;
 }
@@ -954,6 +960,11 @@ function permHTML(){
     <ul id="memberList" style="margin:0;padding-left:20px"><li class="hint">讀取中…</li></ul>
     <form class="row" id="memberForm"><input id="memberEmail" type="email" placeholder="例如：someone@gmail.com" style="max-width:280px"><button type="submit" class="btn primary">加入</button></form>
   </section>
+  <section class="panel" id="stampPanel">
+    <p class="sub" style="margin:0">收據印章</p>
+    <p class="hint">上傳後，每張收據都會自動印上。印章只存在需要登入的雲端資料裡，不會放在公開的網站檔案中。建議用去背的 PNG 圖檔。</p>
+    <div class="row" style="gap:24px;flex-wrap:wrap">${[['receipt','收據專用章'],['owner','負責人章']].map(([k,t])=>`<div style="display:flex;flex-direction:column;gap:6px"><b>${t}</b>${STAMPS[k]?`<img class="stamp-prev" src="${STAMPS[k]}" alt="${t}">`:'<div class="stamp-prev hint" style="display:grid;place-items:center">尚未上傳</div>'}<label class="btn small">選擇圖檔<input type="file" accept="image/*" data-stamp="${k}" hidden></label>${STAMPS[k]?`<button type="button" class="link" data-rmstamp="${k}">移除</button>`:''}</div>`).join('')}</div>
+  </section>
   <form class="panel" id="pinForm">
     <p class="sub">${S.perm.pin?'更改管理者密碼':'設定管理者密碼'}</p>
     <p class="hint">${S.perm.pin?'':'設定之後，打開檔案預設是一般人員，要輸入密碼才能切換成管理者。'}</p>
@@ -966,6 +977,15 @@ function permHTML(){
     ${S.audit.length?`<input class="rowfilter" id="aq" data-target="#auditBody" placeholder="搜尋單號、修改人" style="max-width:260px"><div class="tablebox"><table><thead><tr><th>時間</th><th>單號</th><th>動作</th><th>修改人</th><th>原因</th><th>變更內容</th></tr></thead><tbody id="auditBody">${S.audit.slice(0,300).map(g=>`<tr class="${S.docs.some(x=>x.no===g.no)?'click':''}" ${S.docs.some(x=>x.no===g.no)?`data-doc="${g.no}"`:''}><td>${esc(g.at)}</td><td class="mono">${esc(g.no)}</td><td>${g.action==='刪除'?'<span class="pill bad">刪除</span>':'<span class="pill mid">修改</span>'}</td><td>${esc(g.by)}</td><td>${esc(g.reason||'')}</td><td style="white-space:normal">${g.changes.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">目前還沒有修改或刪除紀錄。</p>'}
   </section>`;
 }
+// 收據印章存在雲端 jxc/stamps，不放進備份檔與公開的網站檔案。
+function stampImg(f){return new Promise((ok,bad)=>{const r=new FileReader();r.onerror=bad;r.onload=()=>{const im=new Image();im.onerror=bad;im.onload=()=>{
+  const k=Math.min(1,360/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+  c.getContext('2d').drawImage(im,0,0,c.width,c.height);ok(c.toDataURL('image/png'))};im.src=r.result};r.readAsDataURL(f)})}
+document.addEventListener('change',async e=>{const k=e.target.dataset&&e.target.dataset.stamp;if(!k||!e.target.files[0])return;
+  if(role!=='admin')return;
+  try{const src=await stampImg(e.target.files[0]);await db.doc('stamps/'+k).set({src});STAMPS[k]=src;toast('已上傳印章');render()}catch(err){toast('印章上傳失敗，請換一個圖檔再試')}});
+document.addEventListener('click',async e=>{const k=e.target.dataset&&e.target.dataset.rmstamp;if(!k)return;
+  if(!confirm('確定移除這個印章？'))return;try{await db.doc('stamps/'+k).delete();delete STAMPS[k];render()}catch(err){toast('移除失敗')}});
 async function loadMembers(){
   const ul=$('#memberList');if(!ul||!window.jxcAuth)return;
   const own=jxcAuth.isOwner();
