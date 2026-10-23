@@ -701,26 +701,33 @@ document.addEventListener('submit',e=>{
 
 /* ---------- 應收付帳款 ---------- */
 // 應收：所有銷貨單（不含調撥）還沒收完的；應付：已到貨驗收、還沒付完的採購單。帳齡從出貨／驗收那天算起。
-let arSide='AR';const arOpen=new Set();
+let arSide='AR';const arOpen=new Set(),arF={from:'',to:'',all:false};
+document.addEventListener('change',e=>{if(page!=='ar')return;if(e.target.id==='arFrom')arF.from=e.target.value;else if(e.target.id==='arTo')arF.to=e.target.value;else if(e.target.id==='arAll')arF.all=e.target.checked;else return;render()});
 function arRef(d){const st=d.steps||[];return (d.kind==='PO'?st[1]:st[2])?.at||d.date}
 function arAge(d){return Math.max(0,Math.floor((Date.parse(today())-Date.parse(arRef(d)))/864e5))}
 function arHTML(){
   const R=arSide==='AR',w=R?'收':'付';
-  const list=S.docs.filter(d=>R?d.kind==='SO'&&!d.xfer:d.kind==='PO'&&stepN(d)>=2).map(d=>({d,a:amount(d),p:paidOf(d)})).filter(x=>x.a-x.p>0.004);
-  const g=new Map();list.forEach(x=>{const k=x.d.party;const o=g.get(k)||{name:k,docs:[],a:0,p:0,age:0};o.docs.push(x);o.a+=x.a;o.p+=x.p;o.age=Math.max(o.age,arAge(x.d));g.set(k,o)});
+  const list=S.docs.filter(d=>R?d.kind==='SO'&&!d.xfer:d.kind==='PO'&&stepN(d)>=2).filter(d=>(!arF.from||arRef(d)>=arF.from)&&(!arF.to||arRef(d)<=arF.to)).map(d=>({d,a:amount(d),p:paidOf(d)})).filter(x=>arF.all||x.a-x.p>0.004);
+  const g=new Map();list.forEach(x=>{const k=x.d.party;const o=g.get(k)||{name:k,docs:[],a:0,p:0,age:0};o.docs.push(x);o.a+=x.a;o.p+=x.p;if(x.a-x.p>0.004)o.age=Math.max(o.age,arAge(x.d));g.set(k,o)});
   const gs=[...g.values()].sort((a,b)=>(b.a-b.p)-(a.a-a.p));
   const tot=gs.reduce((s,o)=>s+o.a-o.p,0),over=list.filter(x=>arAge(x.d)>30).reduce((s,x)=>s+x.a-x.p,0);
   const waitRecv=R?0:S.docs.filter(d=>d.kind==='PO'&&stepN(d)<2).reduce((s,d)=>s+amount(d),0);
-  const rows=gs.map(o=>{const op=arOpen.has(o.name);return `<tr class="click" data-arp="${esc(o.name)}"><td>${op?'▾':'▸'} ${esc(o.name)}</td><td class="n">${o.docs.length}</td><td class="n">${money(o.a)}</td><td class="n">${money(o.p)}</td><td class="n"><b>${money(o.a-o.p)}</b></td><td class="n">${o.age>30?`<span class="pill bad">${o.age} 天</span>`:o.age+' 天'}</td></tr>`+
-    (op?o.docs.sort((x,y)=>arRef(x.d).localeCompare(arRef(y.d))).map(x=>`<tr class="click" data-doc="${x.d.no}" style="background:var(--bg)"><td class="mono" style="padding-left:28px">${x.d.no}　<span class="hint">${R?'出貨':'驗收'} ${esc(arRef(x.d))}</span></td><td>${progHTML(x.d)}</td><td class="n">${money(x.a)}</td><td class="n">${money(x.p)}</td><td class="n">${money(x.a-x.p)}</td><td class="n">${arAge(x.d)} 天</td></tr>`).join(''):'')}).join('');
+  const rows=gs.map(o=>{const op=arOpen.has(o.name);return `<tr class="click" data-arp="${esc(o.name)}"><td>${op?'▾':'▸'} ${esc(o.name)}</td><td class="n">${o.docs.length}</td><td class="n">${money(o.a)}</td><td class="n">${money(o.p)}</td><td class="n"><b>${money(o.a-o.p)}</b></td><td class="n">${o.a-o.p<=0.004?'—':o.age>30?`<span class="pill bad">${o.age} 天</span>`:o.age+' 天'}</td></tr>`+
+    (op?o.docs.sort((x,y)=>arRef(x.d).localeCompare(arRef(y.d))).map(x=>`<tr class="click" data-doc="${x.d.no}" style="background:var(--bg)"><td class="mono" style="padding-left:28px">${x.d.no}　<span class="hint">${R?'出貨':'驗收'} ${esc(arRef(x.d))}</span></td><td>${progHTML(x.d)}</td><td class="n">${money(x.a)}</td><td class="n">${money(x.p)}</td><td class="n">${money(x.a-x.p)}</td><td class="n">${x.a-x.p<=0.004?'已'+w+'清':arAge(x.d)+' 天'}</td></tr>`).join(''):'')}).join('');
   return `<div><h2>應收付帳款</h2><p class="lead">${R?'客戶還沒付清的銷貨單（不含調撥），依客戶整理。':'已經到貨驗收、還沒付清的採購單，金額照驗收數量算，依廠商整理。'}點名稱展開單據，點單據可以登記${w}款。</p></div>
   <div class="seg" id="arSeg"><button type="button" data-s="AR" aria-pressed="${R}">應收帳款（客戶）</button><button type="button" data-s="AP" aria-pressed="${!R}">應付帳款（廠商）</button></div>
-  <div class="tiles"><div class="tile"><span class="k">未${w}合計</span><span class="v">${money(tot)}</span></div><div class="tile"><span class="k">${R?'客戶':'廠商'}數</span><span class="v">${gs.length}</span></div><div class="tile ${over?'alert':''}"><span class="k">超過 30 天未${w}</span><span class="v">${money(over)}</span></div>${R?'':`<div class="tile"><span class="k">尚未到貨的採購金額</span><span class="v">${money(waitRecv)}</span></div>`}</div>
+  <div class="row" style="flex-wrap:wrap;align-items:flex-end"><label class="f">${R?'出貨':'驗收'}日期從<input type="date" id="arFrom" value="${arF.from}"></label><label class="f">到<input type="date" id="arTo" value="${arF.to}"></label>
+    <div class="seg" id="arQuick">${[['m0','本月'],['m1','上月'],['y0','今年'],['all','不限']].map(([k,t])=>`<button type="button" data-q="${k}">${t}</button>`).join('')}</div>
+    <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="arAll" ${arF.all?'checked':''} style="width:auto">也列出已${w}清的單</label></div>
+  <div class="tiles"><div class="tile"><span class="k">${arF.from||arF.to?'區間':''}應${w}</span><span class="v">${money(gs.reduce((s,o)=>s+o.a,0))}</span></div><div class="tile"><span class="k">${arF.from||arF.to?'區間':''}已${w}</span><span class="v">${money(gs.reduce((s,o)=>s+o.p,0))}</span></div><div class="tile"><span class="k">未${w}合計</span><span class="v">${money(tot)}</span></div><div class="tile"><span class="k">${R?'客戶':'廠商'}數</span><span class="v">${gs.length}</span></div><div class="tile ${over?'alert':''}"><span class="k">超過 30 天未${w}</span><span class="v">${money(over)}</span></div>${R?'':`<div class="tile"><span class="k">尚未到貨的採購金額</span><span class="v">${money(waitRecv)}</span></div>`}</div>
   <section class="panel"><input class="rowfilter" data-target="#arBody" placeholder="搜尋${R?'客戶':'廠商'}或單號" style="max-width:280px">
   <div class="tablebox">${gs.length?`<table><thead><tr><th>${R?'客戶':'廠商'}</th><th class="n">張數</th><th class="n">應${w}</th><th class="n">已${w}</th><th class="n">未${w}</th><th class="n">最久帳齡</th></tr></thead><tbody id="arBody">${rows}</tbody><tfoot><tr><td>合計</td><td class="n">${list.length}</td><td class="n">${money(gs.reduce((s,o)=>s+o.a,0))}</td><td class="n">${money(gs.reduce((s,o)=>s+o.p,0))}</td><td class="n">${money(tot)}</td><td></td></tr></tfoot></table>`:`<p class="empty">目前沒有未${w}的帳款。</p>`}</div></section>`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#arSeg button');if(b){arSide=b.dataset.s;arOpen.clear();render();return}
+  const q=e.target.closest('#arQuick button');if(q){const t=today(),y=+t.slice(0,4),m=+t.slice(5,7),pad=n=>String(n).padStart(2,'0'),end=(Y,M)=>`${Y}-${pad(M)}-${pad(new Date(Y,M,0).getDate())}`;
+    const k=q.dataset.q;if(k==='m0'){arF.from=`${y}-${pad(m)}-01`;arF.to=end(y,m)}else if(k==='m1'){const Y=m===1?y-1:y,M=m===1?12:m-1;arF.from=`${Y}-${pad(M)}-01`;arF.to=end(Y,M)}else if(k==='y0'){arF.from=`${y}-01-01`;arF.to=`${y}-12-31`}else{arF.from=arF.to=''}
+    arOpen.clear();render();return}
   const r=e.target.closest('tr[data-arp]');if(r){const n=r.dataset.arp;arOpen.has(n)?arOpen.delete(n):arOpen.add(n);render()}
 });
 
