@@ -137,7 +137,8 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
   .paper tfoot{display:table-row-group}
   .paper .grow{display:none}
   body{background:#fff}
-  .paper.combo{min-height:0;font-size:9.5pt;gap:6px}
+  .paper.combo{min-height:272mm;font-size:9.5pt;gap:6px}
+  .paper.combo .grow{display:block}
   .paper.combo th,.paper.combo td{padding:2px 6px}
   .paper.combo .rcpt{break-inside:avoid}
 }
@@ -943,7 +944,7 @@ function paperHTML(d){
     ${d.custom?`<div style="white-space:pre-wrap"><b>客訂說明：</b>${esc(d.spec||'')}</div>`:''}
     ${combo?'':'<div class="grow"></div>'}
     <div class="sign">${k.sign.map(s=>`<div>${s}</div>`).join('')}</div>
-    ${combo?`<div class="cut"><span>✂ 收據</span></div>${receiptHTML(d)}`:'<div class="foot">本單由系統自動產生</div>'}</div>`;
+    ${combo?`<div class="grow"></div><div class="cut"><span>✂ 收據</span></div>${receiptHTML(d)}`:'<div class="foot">本單由系統自動產生</div>'}</div>`;
 }
 function progHTML(d){const F=flowOf(d);if(!F)return '';const n=stepN(d);
   const label=n>=F.length?F[F.length-1].done:F[n-1]?F[n-1].done:'未開始';
@@ -988,7 +989,7 @@ function capNum(n){n=Math.round(n);if(n===0)return '零';const D='零壹貳參�
   return out.replace(/零$/,'')}
 function receiptHTML(d){
   const c=S.customers.find(x=>x.name===d.party)||{};const st=(d.steps||[])[2];const date=st?st.at:d.date;
-  const ls=d.lines.slice();if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<5)ls.push(null);const tot=amount(d);
+  const ls=d.lines.slice();if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<8)ls.push(null);const tot=amount(d);
   return `<div class="rcpt"><table>
     <tr><td class="nb"></td><td class="nb rt" colspan="4" rowspan="2">免用統一發票收據</td><td class="nb" style="text-align:right">統一編號:</td><td class="nb" colspan="2" style="text-align:left">${esc(c.taxId||'')}</td></tr>
     <tr><td class="nb"></td><td class="nb" style="text-align:right">日期:</td><td class="nb" colspan="2" style="text-align:left">${date.replace(/-/g,'/')}</td></tr>
