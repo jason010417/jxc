@@ -605,7 +605,8 @@ function kindHTML(kind){
       <label class="f">${editing?'修改單號':'單號（自動）'}<input id="f-no" value="${editing||nextNo(kind,today())}" disabled></label>
       <label class="f">日期<input id="f-date" type="date" value="${today()}"></label>
       ${kind==='SO'?`<label class="f">類型<select id="f-type"><option value="sale">銷貨</option><option value="xfer">調撥</option></select></label>
-      <label class="f">接單人員（必填）<input id="f-taker" list="f-takers" placeholder="選擇或輸入名字"><datalist id="f-takers">${[...new Set(S.docs.flatMap(x=>[x.taker,...(x.steps||[]).map(s=>s.by)]).filter(Boolean))].map(n=>`<option value="${esc(n)}">`).join('')}</datalist></label>`:''}
+      `:''}
+      ${kind==='SO'||kind==='PO'?`<label class="f">${TAKER[kind]}（必填）<input id="f-taker" list="f-takers" placeholder="選擇或輸入名字"><datalist id="f-takers">${[...new Set(S.docs.flatMap(x=>[x.taker,...(x.steps||[]).map(s=>s.by)]).filter(Boolean))].map(n=>`<option value="${esc(n)}">`).join('')}</datalist></label>`:''}
       <label class="f"><span id="f-partyLbl">${k.party}</span><input id="f-party" list="f-parties" placeholder="${kind==='SO'?'打字會從顧客資料提示':kind==='PO'?'打字會從廠商資料提示':'打字會自動提示以前填過的'}"><datalist id="f-parties">${parties.map(p=>`<option value="${esc(p)}">`).join('')}</datalist></label>
       ${kind==='SO'?'<label class="f">到貨期間（開始）<input id="f-arr1" type="date"></label><label class="f">到貨期間（結束，可留空）<input id="f-arr2" type="date"></label>':''}
       ${editing?'<label class="f">修改人（必填）<input id="f-editor" list="st-bys2"></label><label class="f">修改原因<input id="f-reason" placeholder="例如：客戶改數量"></label>':''}
@@ -668,7 +669,7 @@ document.addEventListener('submit',e=>{
   const date=$('#f-date').value,party=$('#f-party').value.trim();
   if(!date){err.textContent='請填日期。';return}
   if(!party&&kind!=='MO'){err.textContent='請填'+k.party+'。';return}
-  if(kind==='SO'&&!$('#f-taker').value.trim()){err.textContent='請填接單人員。';$('#f-taker').focus();return}
+  if(TAKER[kind]&&!$('#f-taker').value.trim()){err.textContent='請填'+TAKER[kind]+'。';$('#f-taker').focus();return}
   const lines=[];
   e.target.querySelectorAll('.line').forEach(r=>{const it=r.querySelector('.li').value,q=+r.querySelector('.lq').value;const p=r.querySelector('.lp');
     if(it&&q>0){const l={item:it,qty:q};if(p)l.price=+p.value||0;if(r.dataset.dir)l.dir=r.dataset.dir;if(kind==='EX')l.ret=0;lines.push(l)}});
@@ -682,22 +683,24 @@ document.addEventListener('submit',e=>{
     const ch=[];if(d.date!==date)ch.push(`日期：${d.date} → ${date}`);if(d.party!==(party||'—'))ch.push(`${k.party}：${d.party} → ${party||'—'}`);
     if(sum(d.lines)!==sum(lines))ch.push(`品項：${sum(d.lines)} → ${sum(lines)}`);
     const cu=kind==='SO'?customVal():null,av=kind==='SO'?arrVal():null;
-    const ty=kind==='SO'?$('#f-type').value==='xfer':null,tk=kind==='SO'?$('#f-taker').value.trim():null;
+    const ty=kind==='SO'?$('#f-type').value==='xfer':null,tk=TAKER[kind]?$('#f-taker').value.trim():null;
     if(ty!=null&&!!d.xfer!==ty)ch.push(`類型：${d.xfer?'調撥':'銷貨'} → ${ty?'調撥':'銷貨'}`);
-    if(tk!=null&&(d.taker||'')!==tk)ch.push(`接單人員：${d.taker||'—'} → ${tk||'—'}`);
+    if(tk!=null&&(d.taker||'')!==tk)ch.push(`${TAKER[kind]}：${d.taker||'—'} → ${tk||'—'}`);
     if(av&&arrText(d)!==arrText(av))ch.push(`到貨期間：${arrText(d)||'—'} → ${arrText(av)||'—'}`);
     if(cu&&(!!d.custom!==cu.custom||(d.spec||'')!==cu.spec))ch.push(`客訂：${d.custom?'是':'否'}${d.spec?'（'+d.spec+'）':''} → ${cu.custom?'是':'否'}${cu.spec?'（'+cu.spec+'）':''}`);
     if(!ch.length){err.textContent='沒有任何變更。';return}
     const entry={at:new Date().toLocaleString('zh-TW',{hour12:false}),by,reason:$('#f-reason').value.trim(),changes:ch};
     (d.log=d.log||[]).push(entry);S.audit.unshift({no:d.no,action:'修改',...entry});
     d.date=date;d.party=party||'—';d.lines=lines;if(d.steps&&d.steps[0])d.steps[0].at=date;
-    if(ty!=null){if(ty)d.xfer=true;else delete d.xfer;if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk;}
+    if(ty!=null){if(ty)d.xfer=true;else delete d.xfer}
+    if(tk!=null){if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk}
     if(av){if(av.arr)d.arr=av.arr;else delete d.arr;if(av.arr2)d.arr2=av.arr2;else delete d.arr2}
     if(cu){if(cu.custom){d.custom=true;d.spec=cu.spec;if(!d.pk)d.pk=newKey('p')}else{delete d.custom;delete d.spec}}
     save();const no=d.no;editing=null;formOpen=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
   const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};
   if(kind==='SO'){doc.paid=0;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2;
-    if($('#f-type').value==='xfer')doc.xfer=true;const tk=$('#f-taker').value.trim();if(tk)doc.taker=tk}
+    if($('#f-type').value==='xfer')doc.xfer=true}
+  if(TAKER[kind]){const tk=$('#f-taker').value.trim();if(tk)doc.taker=tk}
   const cu=kind==='SO'?customVal():null;
   if(cu&&cu.custom){doc.custom=true;doc.spec=cu.spec;doc.pk=newKey('p');if(formPhotos.length){doc.photos=formPhotos.length;putPhotos(doc.pk,formPhotos.slice())}}
   formPhotos=[];
@@ -749,6 +752,8 @@ function payPanel(d){
   const w=po?'付':'收',a=amount(d),p=paidOf(d),ps=payState(d);
   return `<div class="row"><span>應${w} <b class="mono">${money(a)}</b>，已${w} <b class="mono">${money(p)}</b>，未${w} <b class="mono">${money(a-p)}</b></span><span class="pill ${ps[1]}">${ps[0]}</span></div>${p>=a?'':`<div class="row"><label class="f" style="flex:1;max-width:220px">本次${w}款金額<input id="payIn" type="number" min="0" inputmode="decimal" value="${a-p}"></label><label class="f" style="max-width:160px">經手人（必填）<input id="payBy" list="st-bys"></label><label class="f" style="max-width:160px">${w}款方式<select id="payMethod">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label><button type="button" class="btn primary" id="savePay" style="align-self:flex-end">登記${w}款</button></div>`}
   ${d.pays&&d.pays.length?`<div class="hint">${w}款紀錄：${d.pays.map(x=>`${esc(x.at)} ${esc(x.method)} ${money(x.amt)}${x.by?'（'+esc(x.by)+'）':''}`).join('；')}</div>`:''}`}
+const SHIP_METHODS=['親送','自取','回頭車','蝦皮店到店','7-11 交貨便','全家店到店','萊爾富','OK 超商','黑貓宅急便','新竹物流','嘉里大榮','宅配通','中華郵政','順豐速運','其他'];
+const TAKER={SO:'接單人員',PO:'開單人員'};
 function arrVal(){const a=$('#f-arr1').value,b=$('#f-arr2').value;return a||b?{arr:a||b,arr2:a&&b&&b!==a?b:''}:{arr:'',arr2:''}}
 function arrText(d){const f=x=>x?x.replace(/-/g,'/'):'';return d.arr?f(d.arr)+(d.arr2?' ～ '+f(d.arr2):''):''}
 function customVal(){const c=$('#f-custom');return c?{custom:c.checked,spec:$('#f-spec').value.trim()}:null}
@@ -784,7 +789,8 @@ let delArm=false;
 function fillEdit(){
   const d=S.docs.find(x=>x.no===editing);if(!d)return;
   $('#f-date').value=d.date;$('#f-party').value=d.party==='—'?'':d.party;showPartyInfo();
-  if($('#f-type')){$('#f-type').value=d.xfer?'xfer':'sale';$('#f-taker').value=d.taker||'';typeUI()}
+  if($('#f-type')){$('#f-type').value=d.xfer?'xfer':'sale';typeUI()}
+  if($('#f-taker'))$('#f-taker').value=d.taker||'';
   if($('#f-arr1')){$('#f-arr1').value=d.arr||'';$('#f-arr2').value=d.arr2||''}
   if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom}
   const names=[...new Set(S.docs.flatMap(x=>(x.log||[]).map(g=>g.by).concat((x.steps||[]).map(s=>s.by))).filter(Boolean))];
@@ -830,7 +836,7 @@ function paperHTML(d){
   const combo=d.kind==='SO'&&!d.xfer;
   return `<div class="paper a4${combo?' combo':''}">
     <div class="ph"><div><div class="co"><b>${COMPANY.name}</b><br><span style="font-size:.85em;color:#555">${COMPANY.line}</span></div><h3>${k.name}</h3></div><div class="mono" style="color:var(--paper-ink)">${d.no}</div></div>
-    <div class="meta"><div><span>日期：</span>${d.date}</div><div><span>${k.party}：</span>${esc(d.party)}</div>${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>接單人員：</span>${esc(d.taker)}</div>`:''}${d.pays&&d.pays.length?`<div><span>收款方式：</span>${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
+    <div class="meta"><div><span>日期：</span>${d.date}</div><div><span>${k.party}：</span>${esc(d.party)}</div>${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>${TAKER[d.kind]||'開單人員'}：</span>${esc(d.taker)}</div>`:''}${d.pays&&d.pays.length?`<div><span>收款方式：</span>${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
     <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody>${foot?`<tfoot>${foot}</tfoot>`:''}</table>
     ${d.custom?`<div style="white-space:pre-wrap"><b>客訂說明：</b>${esc(d.spec||'')}</div>`:''}
     ${combo?'':'<div class="grow"></div>'}
@@ -848,9 +854,8 @@ function flowPanel(d){
     html+=`<div class="grid-f">
       <label class="f">${nx.t}日期<input id="st-at" type="date" value="${today()}"></label>
       <label class="f">經手人（必填）<input id="st-by" list="st-bys" placeholder="誰處理的" required><datalist id="st-bys">${handlers.map(h=>`<option value="${esc(h)}">`).join('')}</datalist></label>
-      ${nx.k==='ship'?`<label class="f">交貨方式<select id="st-method">${['貨運','親送','自取','郵寄'].map(m=>`<option ${d.ship&&d.ship.method===m?'selected':''}>${m}</option>`).join('')}</select></label>
-      <label class="f">物流公司<input id="st-carrier" placeholder="例如：大榮、郵局" value="${esc(d.ship&&d.ship.carrier)}"></label>
-      <label class="f">查貨號碼<input id="st-track" value="${esc(d.ship&&d.ship.track)}"></label>`:''}
+      ${nx.k==='ship'?`<label class="f">交貨方式<select id="st-method">${SHIP_METHODS.map(m=>`<option ${d.ship&&d.ship.method===m?'selected':''}>${m}</option>`).join('')}</select></label>
+      <label class="f">查貨號碼（回頭車打車牌）<input id="st-track" placeholder="回頭車請填車牌號碼" value="${esc(d.ship&&d.ship.track)}"></label>`:''}
       ${nx.k==='recv'?d.lines.map((l,i)=>`<label class="f">${esc(item(l.item).name)} 驗收數量（訂 ${fmt(l.qty)}）<input class="acc" data-i="${i}" type="number" min="0" step="any" inputmode="decimal" value="${l.acc??l.qty}"></label>`).join(''):''}
       ${nx.k==='pay'&&d.kind==='PO'?`<label class="f">付款方式<select id="st-pm">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
       ${nx.k==='pay'&&d.kind==='SO'?`<label class="f">收款方式<select id="st-pm">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
@@ -868,7 +873,7 @@ function partyInfo(d){
     return f('廠商編號',v.code)+f('統一編號',v.taxId)+f('聯絡人',v.contact)+f('聯絡電話',v.phone)}
   return '';
 }
-function shipInfo(d){if(!d.ship)return '';const f=(l,v)=>v?`<div><span>${l}：</span>${esc(v)}</div>`:'';return f('交貨方式',d.ship.method)+f('物流',d.ship.carrier)+f('查貨號碼',d.ship.track)}
+function shipInfo(d){if(!d.ship)return '';const f=(l,v)=>v?`<div><span>${l}：</span>${esc(v)}</div>`:'';return f('交貨方式',d.ship.method)+f('物流',d.ship.carrier)+f(d.ship.method==='回頭車'?'車牌':'查貨號碼',d.ship.track)}
 function capNum(n){n=Math.round(n);if(n===0)return '零';const D='零壹貳參肆伍陸柒捌玖',U=['','拾','佰','仟'],B=['','萬','億'];
   const groups=[];while(n>0){groups.push(n%10000);n=Math.floor(n/10000)}
   let out='';
@@ -906,7 +911,7 @@ $('#overlay').addEventListener('click',e=>{
   if(e.target.id==='stNext'){const F=flowOf(d),nx=F[stepN(d)];if(!nx)return;
     const by0=$('#st-by').value.trim();if(!by0){toast('請先填經手人');$('#st-by').focus();return}
     d.steps.push({at:$('#st-at').value||today(),by:by0});
-    if(nx.k==='ship')d.ship={method:$('#st-method').value,carrier:$('#st-carrier').value.trim(),track:$('#st-track').value.trim()};
+    if(nx.k==='ship')d.ship={method:$('#st-method').value,track:$('#st-track').value.trim()};
     if(nx.k==='recv'){const bad=[...document.querySelectorAll('.acc')].some(x=>x.value===''||+x.value<0);if(bad){d.steps.pop();toast('請填每一項的驗收數量');return}
       document.querySelectorAll('.acc').forEach(x=>{d.lines[+x.dataset.i].acc=+x.value})}
     if(nx.k==='pay'&&(d.kind==='SO'||d.kind==='PO')&&paidOf(d)<amount(d)){const st=d.steps[d.steps.length-1],pm=$('#st-pm').value,pd=paidOf(d);st.prevPaid=d.paid??null;st.method=pm;st.hadPaid=d.paid!=null;
