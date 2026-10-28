@@ -282,7 +282,7 @@ const KINDS={
   EX:{name:'外展借還單',short:'外展',party:'活動名稱',priced:false,type:'成品',sign:['帶出人','歸還點收','主管']},
   SO:{name:'銷貨出貨單',short:'銷貨',party:'客戶',priced:true,type:'成品',sign:['出貨人','客戶簽收','財務對帳']}
 };
-const PAGES=[['home','庫存總表'],['PO','採購'],['MO','生產'],['EX','外展借還'],['SO','銷貨出貨'],['hist','歷史查詢'],['ar','應收付帳款'],['items','品項清單'],['bom','BOM 設定'],['contacts','顧客／廠商']];
+const PAGES=[['todo','待辦工作'],['home','庫存總表'],['PO','採購'],['MO','生產'],['EX','外展借還'],['SO','銷貨出貨'],['hist','歷史查詢'],['ar','應收付帳款'],['items','品項清單'],['bom','BOM 設定'],['contacts','顧客／廠商']];
 const KEY='erp-local-v2';
 
 const SEED={"sources": [["L", "LINE詢問"], ["T", "電話詢問"], ["S", "蝦皮下訂"], ["E", "官網下訂"], ["O", "其他"]]};
@@ -483,7 +483,7 @@ function stock(){
 }
 
 function renderTabs(){
-  $('#tabs').innerHTML=PAGES.concat(can('items')?[['count','盤點重設']]:[]).concat(role==='admin'?[['perm','權限設定']]:[]).map(([k,t])=>`<button type="button" data-p="${k}" ${k===page?'aria-current="page"':''}>${t}</button>`).join('');
+  $('#tabs').innerHTML=PAGES.concat(can('items')?[['count','盤點重設']]:[]).concat(role==='admin'?[['perm','權限設定']]:[]).map(([k,t])=>`<button type="button" data-p="${k}" ${k===page?'aria-current="page"':''}>${t}${k==='todo'&&ready&&S.docs?(n=>n?` <span class="pill bad">${n}</span>`:'')(todoCount()):''}</button>`).join('');
 }
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-p]');if(!b)return;go(b.dataset.p)});
 function go(p){page=p;editing=null;try{localStorage.setItem(KEY+'-page',p)}catch(e){}renderTabs();render();window.scrollTo(0,0)}
@@ -497,6 +497,7 @@ function render(){
   else if(KINDS[page])m.innerHTML=kindHTML(page);
   else if(page==='hist'){m.innerHTML=histHTML();renderHist()}
   else if(page==='ar')m.innerHTML=arHTML();
+  else if(page==='todo')m.innerHTML=todoHTML();
   else if(page==='items')m.innerHTML=itemsHTML();
   else if(page==='contacts')m.innerHTML=contactsHTML();
   else if(page==='bom')m.innerHTML=bomPageHTML();
@@ -507,24 +508,10 @@ function render(){
 /* ---------- 庫存總表 ---------- */
 let homeFilter='all';const fc={from:'',to:'',days:30,only:false};
 function homeHTML(){
-  const st=stock(),mon=today().slice(0,7);
-  const low=S.items.filter(i=>st[i.id].cur<(+i.safety||0));
-  const unpaid=S.docs.filter(d=>d.kind==='SO'&&!d.xfer).reduce((a,d)=>a+Math.max(0,amount(d)-paidOf(d)),0),unpay=S.docs.filter(d=>d.kind==='PO'&&stepN(d)>=2).reduce((a,d)=>a+Math.max(0,amount(d)-paidOf(d)),0);
-  const sales=S.docs.filter(d=>d.kind==='SO'&&!d.xfer&&d.date.startsWith(mon)).reduce((a,d)=>a+amount(d),0);
-  const waitRecv=S.docs.filter(d=>d.kind==='PO'&&stepN(d)<2).length,waitShip=S.docs.filter(d=>d.kind==='SO'&&stepN(d)<3).length;
-  const out=S.docs.filter(d=>d.kind==='EX'&&!d.returned).reduce((a,d)=>a+d.lines.reduce((b,l)=>b+l.qty,0),0);
+  const st=stock();
   const rows=S.items.filter(i=>homeFilter==='all'||i.type===homeFilter).map(i=>{const r=st[i.id],isLow=r.cur<(+i.safety||0);
     return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td>${i.type}</td><td class="n">${fmt(r.open)}</td><td class="n">${fmt(r.po)}</td><td class="n">${fmt(r.use)}</td><td class="n">${fmt(r.made)}</td><td class="n">${fmt(r.exOut)}</td><td class="n">${fmt(r.exRet)}</td><td class="n">${fmt(r.so)}</td><td class="n"><b>${fmt(r.cur)}</b> ${esc(i.unit)}</td><td class="n">${fmt(i.safety)}</td><td>${isLow?'<span class="pill warn">需補貨</span>':'<span class="pill ok">正常</span>'}</td></tr>`}).join('');
   return `<div><h2>庫存總表</h2><p class="lead">所有數字都從各張單據自動算出來，不用手動改庫存。進貨是半成品，生產時領用半成品、完工變成品。資料存在雲端，大家開同一個網址看到的是同一份，有人改了會自動更新。${S.count?`<br><b>目前庫存從 ${S.count.date} 的盤點數量起算</b>，之前的單據只留作歷史紀錄。`:''}</p></div>
-  <div class="tiles">
-    <div class="tile ${low.length?'alert':''}"><span class="k">需補貨品項</span><span class="v">${low.length}</span></div>
-    <div class="tile"><span class="k">客戶未收款</span><span class="v">${money(unpaid)}</span></div>
-    <div class="tile"><span class="k">應付廠商未付</span><span class="v">${money(unpay)}</span></div>
-    <div class="tile ${waitRecv?'alert':''}"><span class="k">待到貨採購單</span><span class="v">${waitRecv}</span></div>
-    <div class="tile ${waitShip?'alert':''}"><span class="k">待出貨銷貨單</span><span class="v">${waitShip}</span></div>
-    <div class="tile"><span class="k">本月外展收入（含捐款）</span><span class="v">${money(S.docs.filter(d=>d.kind==='EX'&&d.date.startsWith(mon)).reduce((a,d)=>a+exSales(d)+(d.donation||0),0))}</span></div>
-    <div class="tile"><span class="k">外展未歸還（件）</span><span class="v">${fmt(out)}</span></div>
-  </div>
   ${forecastHTML()}
   <section class="panel">
     <div class="row between"><div class="seg" id="hf">${[['all','全部'],['半成品','半成品'],['成品','成品']].map(([k,t])=>`<button type="button" data-f="${k}" aria-pressed="${homeFilter===k}">${t}</button>`).join('')}</div>
@@ -727,6 +714,45 @@ document.addEventListener('submit',e=>{
   if(FLOW[kind])doc.steps=[{at:date,by:doc.taker||''}];
   S.docs.push(doc);save();formOpen=false;render();toast('已存檔 '+doc.no);openDoc(doc.no);
 });
+
+/* ---------- 待辦工作 ---------- */
+// 把還沒完成的單據與需要注意的數字集中在一頁，不用一張一張點開看。
+function todoLists(){
+  const st=stock();
+  const so=S.docs.filter(d=>d.kind==='SO'&&!flowDone(d)),po=S.docs.filter(d=>d.kind==='PO'&&!flowDone(d)),ex=S.docs.filter(d=>d.kind==='EX'&&!d.returned);
+  const low=S.items.filter(i=>st[i.id].cur<(+i.safety||0));
+  return {st,so,po,ex,low};
+}
+function todoCount(){try{const t=todoLists();return t.so.length+t.po.length+t.ex.length}catch(e){return 0}}
+const docSum=d=>d.lines.map(l=>lname(l)+'×'+fmt(l.qty)).join('、');
+const lateArr=d=>{const end=d.arr2||d.arr;return d.kind==='SO'&&end&&end<today()&&stepN(d)<3};
+function todoHTML(){
+  const {st,so,po,ex,low}=todoLists(),mon=today().slice(0,7);
+  const unpaid=S.docs.filter(d=>d.kind==='SO'&&!d.xfer).reduce((a,d)=>a+Math.max(0,amount(d)-paidOf(d)),0),unpay=S.docs.filter(d=>d.kind==='PO'&&stepN(d)>=2).reduce((a,d)=>a+Math.max(0,amount(d)-paidOf(d)),0);
+  const waitRecv=S.docs.filter(d=>d.kind==='PO'&&stepN(d)<2).length,waitShip=S.docs.filter(d=>d.kind==='SO'&&stepN(d)<3).length;
+  const out=ex.reduce((a,d)=>a+d.lines.reduce((b,l)=>b+l.qty,0),0);
+  const tile=(k,v,alert,to)=>`<a class="tile ${alert?'alert':''}" href="#${to}" style="text-decoration:none;color:inherit"><span class="k">${k}</span><span class="v">${v}</span></a>`;
+  so.sort((a,b)=>(a.arr||a.date).localeCompare(b.arr||b.date));po.sort((a,b)=>a.date.localeCompare(b.date));ex.sort((a,b)=>a.date.localeCompare(b.date));
+  const sec=(id,title,n,head,rows,empty)=>`<section class="panel" id="${id}"><div class="row between"><b>${title}（${n}）</b></div>${n?`<div class="tablebox"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>`:`<p class="empty">${empty}</p>`}</section>`;
+  const soRows=so.map(d=>{const un=d.xfer?0:amount(d)-paidOf(d);return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td><td>${progHTML(d)}</td><td>${esc(d.party)}</td><td>${d.arr?`${lateArr(d)?'<span class="pill bad">已過到貨期</span> ':''}${arrText(d)}`:''}</td><td>${esc(d.taker||'')}</td><td style="white-space:normal;min-width:12em">${esc(docSum(d))}</td><td class="n">${un>0?money(un):''}</td></tr>`}).join('');
+  const poRows=po.map(d=>{const un=stepN(d)>=2?amount(d)-paidOf(d):0;return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}</td><td>${progHTML(d)}</td><td>${esc(d.party)}</td><td>${d.date}</td><td>${esc(d.taker||'')}</td><td style="white-space:normal;min-width:12em">${esc(docSum(d))}</td><td class="n">${un>0?money(un):''}</td></tr>`}).join('');
+  const exRows=ex.map(d=>{const miss=(d.equip||[]).filter(q=>!q.back);return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}</td><td>${esc(d.party)}</td><td>${d.date}</td><td class="n">${fmt(d.lines.reduce((a,l)=>a+l.qty,0))}</td><td style="white-space:normal">${esc(equipText(miss))}</td></tr>`}).join('');
+  const lowRows=low.map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td>${i.type}</td><td class="n">${fmt(st[i.id].cur)}</td><td class="n">${fmt(+i.safety||0)}</td><td class="n">${fmt((+i.safety||0)-st[i.id].cur)}</td></tr>`).join('');
+  return `<div><h2>待辦工作</h2><p class="lead">還沒完成的單據都在這裡，點任一張就能直接處理下一步。</p></div>
+  <div class="tiles">
+    ${tile('需補貨品項',low.length,low.length,'tdLow')}
+    ${tile('客戶未收款',money(unpaid),0,'tdSO')}
+    ${tile('應付廠商未付',money(unpay),0,'tdPO')}
+    ${tile('待到貨採購單',waitRecv,waitRecv,'tdPO')}
+    ${tile('待出貨銷貨單',waitShip,waitShip,'tdSO')}
+    ${tile('本月外展收入（含捐款）',money(S.docs.filter(d=>d.kind==='EX'&&d.date.startsWith(mon)).reduce((a,d)=>a+exSales(d)+(d.donation||0),0)),0,'tdEX')}
+    ${tile('外展未歸還（件）',fmt(out),out,'tdEX')}
+  </div>
+  ${sec('tdSO','銷貨／調撥未完成',so.length,'<th>單號</th><th>進度</th><th>客戶／地點</th><th>到貨期間</th><th>接單人員</th><th>品項</th><th class="n">未收</th>',soRows,'銷貨單都完成了。')}
+  ${sec('tdPO','採購未完成',po.length,'<th>單號</th><th>進度</th><th>廠商</th><th>下單日期</th><th>開單人員</th><th>品項</th><th class="n">未付</th>',poRows,'採購單都完成了。')}
+  ${sec('tdEX','外展未歸還',ex.length,'<th>單號</th><th>活動名稱</th><th>日期</th><th class="n">帶出件數</th><th>設備還沒帶回</th>',exRows,'外展都已歸還。')}
+  ${sec('tdLow','需補貨品項',low.length,'<th>料號</th><th>品名</th><th>類別</th><th class="n">現有</th><th class="n">安全庫存</th><th class="n">差</th>',lowRows,'目前沒有低於安全庫存的品項。')}`;
+}
 
 /* ---------- 應收付帳款 ---------- */
 // 應收：所有銷貨單（不含調撥）還沒收完的；應付：已到貨驗收、還沒付完的採購單。帳齡從出貨／驗收那天算起。
