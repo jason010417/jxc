@@ -606,7 +606,7 @@ function linesBlock(kind,type,dir,title){
 function kindHTML(kind){
   const k=KINDS[kind];
   const parties=[...new Set([...(kind==='SO'?S.customers.map(c=>c.name):kind==='PO'?S.vendors.map(v=>v.name):[]),...S.docs.filter(d=>d.kind===kind).map(d=>d.party)])];
-  const all=S.docs.filter(d=>d.kind===kind),lf=listFilter[kind]||'all';
+  const all=S.docs.filter(d=>d.kind===kind),lf=listFilter[kind]||'open';
   const docs=all.filter(d=>lf==='all'||(lf==='open'?!flowDone(d):flowDone(d))).sort((a,b)=>b.no.localeCompare(a.no));
   const head=`<tr><th>單號</th>${FLOW[kind]?'<th>流程進度</th>':''}${kind==='SO'?'<th>收款</th>':kind==='PO'?'<th>付款</th>':''}<th>日期</th><th>${kind==='SO'?'客戶／調撥地點':k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>lname(l)+' ×'+fmt(l.qty)).join('、');
@@ -634,7 +634,7 @@ function kindHTML(kind){
     <p class="err" id="f-err"></p>
     <div class="row"><button type="submit" class="btn primary">存檔並查看 A4 單據</button><span class="hint">存檔後庫存總表會馬上更新</span></div>
   </form>
-  <section class="panel">${FLOW[kind]?`<div class="row between"><div class="seg" id="lf">${[['all','全部'],['open','進行中'],['done','已完成']].map(([k2,t])=>`<button type="button" data-f="${k2}" aria-pressed="${lf===k2}">${t}（${all.filter(d=>k2==='all'||(k2==='open'?!flowDone(d):flowDone(d))).length}）</button>`).join('')}</div><span class="hint">流程：${FLOW[kind].map(f=>f.t).join(' → ')}</span></div>`:''}<input id="dq" class="rowfilter" data-target="#docBody" placeholder="搜尋單號、${k.party}、品名" style="max-width:300px"><div class="tablebox">${docs.length?`<table><thead>${head}</thead><tbody id="docBody">${rows}</tbody></table>`:'<p class="empty">還沒有單據，按右上角新增第一張。</p>'}</div><p class="hint">點任一張單可以看 A4 版面${kind==='EX'?'、登記歸還':''}${kind==='SO'?'、登記收款':''}。</p></section>`;
+  <section class="panel">${FLOW[kind]?`<div class="row between"><div class="seg" id="lf">${[['open','進行中'],['done','已完成'],['all','全部']].map(([k2,t])=>`<button type="button" data-f="${k2}" aria-pressed="${lf===k2}">${t}（${all.filter(d=>k2==='all'||(k2==='open'?!flowDone(d):flowDone(d))).length}）</button>`).join('')}</div><span class="hint">流程：${FLOW[kind].map(f=>f.t).join(' → ')}</span></div>`:''}<input id="dq" class="rowfilter" data-target="#docBody" placeholder="搜尋單號、${k.party}、品名" style="max-width:300px"><div class="tablebox">${docs.length?`<table><thead>${head}</thead><tbody id="docBody">${rows}</tbody></table>`:'<p class="empty">還沒有單據，按右上角新增第一張。</p>'}</div><p class="hint">點任一張單可以看 A4 版面${kind==='EX'?'、登記歸還':''}${kind==='SO'?'、登記收款':''}。</p></section>`;
 }
 document.addEventListener('click',e=>{
   if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;render();return}
