@@ -286,7 +286,7 @@ const FIREBASE_CONFIG={
 </script>
 <script>
 const KINDS={
-  PO:{name:'採購驗收單',short:'採購',party:'廠商',priced:true,type:'半成品',sign:['驗收人','主管','財務對帳']},
+  PO:{name:'採購驗收單',short:'採購',party:'廠商',priced:true,type:'buy',sign:['驗收人','主管','財務對帳']},
   MO:{name:'生產製造單',short:'生產',party:'負責人',priced:false,sign:['領料人','生產負責人','主管']},
   EX:{name:'外展借還單',short:'外展',party:'活動名稱',priced:false,type:'成品',sign:['帶出人','歸還點收','主管']},
   SO:{name:'銷貨出貨單',short:'銷貨',party:'客戶',priced:true,type:'成品',sign:['出貨人','客戶簽收','財務對帳']}
@@ -523,12 +523,12 @@ function render(){
 let homeFilter='all';const fc={from:'',to:'',days:30,only:false};
 function homeHTML(){
   const st=stock();
-  const rows=S.items.filter(i=>homeFilter==='all'||i.type===homeFilter).map(i=>{const r=st[i.id],isLow=r.cur<(+i.safety||0);
-    return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td>${i.type}</td><td class="n">${fmt(r.open)}</td><td class="n">${fmt(r.po)}</td><td class="n">${fmt(r.use)}</td><td class="n">${fmt(r.made)}</td><td class="n">${fmt(r.exOut)}</td><td class="n">${fmt(r.exRet)}</td><td class="n">${fmt(r.so)}</td><td class="n"><b>${fmt(r.cur)}</b> ${esc(i.unit)}</td><td class="n">${fmt(i.safety)}</td><td>${isLow?'<span class="pill warn">需補貨</span>':'<span class="pill ok">正常</span>'}</td></tr>`}).join('');
+  const rows=S.items.filter(i=>(homeFilter==='all'||i.type===homeFilter)&&(!i.off||st[i.id].cur)).map(i=>{const r=st[i.id],isLow=!i.off&&r.cur<(+i.safety||0);
+    return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}${i.off?' <span class="pill mid">停用</span>':''}</td><td>${i.type}</td><td class="n">${fmt(r.open)}</td><td class="n">${fmt(r.po)}</td><td class="n">${fmt(r.use)}</td><td class="n">${fmt(r.made)}</td><td class="n">${fmt(r.exOut)}</td><td class="n">${fmt(r.exRet)}</td><td class="n">${fmt(r.so)}</td><td class="n"><b>${fmt(r.cur)}</b> ${esc(i.unit)}</td><td class="n">${fmt(i.safety)}</td><td>${isLow?'<span class="pill warn">需補貨</span>':'<span class="pill ok">正常</span>'}</td></tr>`}).join('');
   return `<div><h2>庫存總表</h2><p class="lead">所有數字都從各張單據自動算出來，不用手動改庫存。進貨是半成品，生產時領用半成品、完工變成品。資料存在雲端，大家開同一個網址看到的是同一份，有人改了會自動更新。${S.count?`<br><b>目前庫存從 ${S.count.date} 的盤點數量起算</b>，之前的單據只留作歷史紀錄。`:''}</p></div>
   ${forecastHTML()}
   <section class="panel">
-    <div class="row between"><div class="seg" id="hf">${[['all','全部'],['半成品','半成品'],['成品','成品']].map(([k,t])=>`<button type="button" data-f="${k}" aria-pressed="${homeFilter===k}">${t}</button>`).join('')}</div>
+    <div class="row between"><div class="seg" id="hf">${[['all','全部'],...TYPES.map(t=>[t,t])].map(([k,t])=>`<button type="button" data-f="${k}" aria-pressed="${homeFilter===k}">${t}</button>`).join('')}</div>
     <input id="hq" class="rowfilter" data-target="#stockBody" placeholder="搜尋料號或品名" style="max-width:220px"><span class="hint">現有 = 期初 + 採購入 − 生產領用 + 生產完工 − 外展帶出 + 外展歸還 − 出貨</span></div>
     <div class="tablebox"><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th class="n">${S.count?'盤點 '+S.count.date.slice(5).replace('-','/'):'期初'}</th><th class="n">採購入</th><th class="n">生產領用</th><th class="n">生產完工</th><th class="n">外展帶出</th><th class="n">外展歸還</th><th class="n">出貨</th><th class="n">現有</th><th class="n">安全庫存</th><th>狀態</th></tr></thead><tbody id="stockBody">${rows}</tbody></table></div>
   </section>`;
@@ -560,7 +560,7 @@ function renderForecast(){
   const out=$('#fcOut');if(!out)return;
   const days=Math.max(1,Math.round((new Date(fc.to)-new Date(fc.from))/864e5)+1);
   const start=stockUntil(addDays(fc.from,-1)),rng=stockUntil(fc.to,fc.from),now=stock();
-  let rows=S.items.filter(i=>homeFilter==='all'||i.type===homeFilter).map(i=>{const st=start[i.id],r=rng[i.id],cur=now[i.id].cur;
+  let rows=S.items.filter(i=>!i.off&&(homeFilter==='all'||i.type===homeFilter)).map(i=>{const st=start[i.id],r=rng[i.id],cur=now[i.id].cur;
     const avg=r.out/days,left=avg>0?Math.floor(cur/avg):null;const need=Math.max(0,Math.ceil(avg*fc.days+(+i.safety||0)-cur));
     return {i,st,r,cur,avg,left,need}});
   if(fc.only)rows=rows.filter(x=>x.need>0);
@@ -582,14 +582,15 @@ function picker(cls,type,sel,ph){const it=sel&&S.items.find(i=>i.id===sel);
   return `<input class="pick" list="dl-${type||'all'}" value="${it?esc(ilabel(it)):''}" placeholder="${ph||'打料號或品名搜尋'}" autocomplete="off"><select class="${cls}" hidden>${itemOptions(type,sel)}</select>`}
 function setPick(sel,id){sel.value=id;const it=S.items.find(i=>i.id===id);sel.previousElementSibling.value=it?ilabel(it):''}
 function renderDatalists(){const box=$('#dls');if(!box)return;
-  box.innerHTML=[['all',''],['半成品','半成品'],['成品','成品']].map(([k,t])=>`<datalist id="dl-${k}">${S.items.filter(i=>!t||i.type===t).map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}</datalist>`).join('')}
+  box.innerHTML=['all','buy','成品'].map(k=>`<datalist id="dl-${k}">${S.items.filter(i=>!i.off&&typeOk(i,k)).map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}</datalist>`).join('')}
 document.addEventListener('change',e=>{if(!e.target.classList.contains('pick'))return;const sel=e.target.nextElementSibling;const v=e.target.value.trim();
   const it=S.items.find(i=>ilabel(i)===v)||S.items.find(i=>i.code===v)||S.items.find(i=>i.name===v)||(v?(()=>{const m=S.items.filter(i=>ilabel(i).includes(v));return m.length===1?m[0]:null})():null);
   if(it&&![...sel.options].some(o=>o.value===it.id)){e.target.setCustomValidity('這個品項不適用這裡');e.target.reportValidity();return}
   e.target.setCustomValidity('');sel.value=it?it.id:'';if(it)e.target.value=ilabel(it);else if(v)toast('找不到「'+v+'」，請從清單選');
   sel.dispatchEvent(new Event('change',{bubbles:true}))});
+function typeOk(i,t){return !t||t==='all'||(t==='buy'?i.type!=='成品':i.type===t)}
 function itemOptions(type,sel){
-  return '<option value="">選擇品項</option>'+S.items.filter(i=>!type||i.type===type).map(i=>`<option value="${i.id}" ${i.id===sel?'selected':''}>${esc(i.code)} ${esc(i.name)}（${esc(i.unit)}）</option>`).join('');
+  return '<option value="">選擇品項</option>'+S.items.filter(i=>i.id===sel||!i.off&&typeOk(i,type)).map(i=>`<option value="${i.id}" ${i.id===sel?'selected':''}>${esc(i.code)} ${esc(i.name)}（${esc(i.unit)}）</option>`).join('');
 }
 function lineHTML(kind,type,dir){
   const k=KINDS[kind],id=++lineSeq;
@@ -734,7 +735,7 @@ document.addEventListener('submit',e=>{
 function todoLists(){
   const st=stock();
   const so=S.docs.filter(d=>d.kind==='SO'&&!flowDone(d)),po=S.docs.filter(d=>d.kind==='PO'&&!flowDone(d)),ex=S.docs.filter(d=>d.kind==='EX'&&!d.returned);
-  const low=S.items.filter(i=>st[i.id].cur<(+i.safety||0));
+  const low=S.items.filter(i=>!i.off&&st[i.id].cur<(+i.safety||0));
   return {st,so,po,ex,low};
 }
 function todoCount(){try{const t=todoLists();return t.so.length+t.po.length+t.ex.length}catch(e){return 0}}
@@ -827,7 +828,7 @@ function exFormHTML(){const st=stock();
     <p class="sub">設備確認（勾選這次要帶的）</p>
     ${eqFormHTML()}
     <div class="row between"><p class="sub">帶出的成品（填數量，沒帶的留空，不會印出來）</p><input class="rowfilter" data-target="#exBody" placeholder="搜尋成品" style="max-width:220px"></div>
-    <div class="tablebox exbox"><table><thead><tr><th>料號</th><th>品名</th><th class="n">現有庫存</th><th style="width:110px">帶出數量</th></tr></thead><tbody id="exBody">${S.items.filter(i=>i.type==='成品').map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td class="n">${fmt(st[i.id]?st[i.id].cur:0)}</td><td><input class="exq" data-item="${i.id}" type="number" min="0" step="any" inputmode="decimal"></td></tr>`).join('')}</tbody></table></div>
+    <div class="tablebox exbox"><table><thead><tr><th>料號</th><th>品名</th><th class="n">現有庫存</th><th style="width:110px">帶出數量</th></tr></thead><tbody id="exBody">${S.items.filter(i=>i.type==='成品'&&!i.off).map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td class="n">${fmt(st[i.id]?st[i.id].cur:0)}</td><td><input class="exq" data-item="${i.id}" type="number" min="0" step="any" inputmode="decimal"></td></tr>`).join('')}</tbody></table></div>
     <p class="sub">其它（工藝品、植栽等，自己輸入，不算庫存）</p>
     <div id="exOther" style="display:flex;flex-direction:column;gap:8px">${otherRow()}</div>
     <div><button type="button" class="btn small" id="addOther">＋ 加一列</button></div>`}
@@ -1071,19 +1072,72 @@ document.addEventListener('change',e=>{
 });
 
 /* ---------- 品項清單 ---------- */
+const TYPES=['成品','半成品','包材','標籤','客製'];
+const LVL={1:'成品',2:'半成品',3:'包材',4:'標籤',9:'客製'};
+const PLINE={'00':'跨產品線共用','01':'清潔','02':'果乾/梅','03':'爆米花','04':'咖啡','05':'茶葉','06':'無咖啡因飲品','07':'米糧','08':'零嘴','09':'其他'};
+const CODE_RE=/^[12349]\d{5}-\d{3}$/;
+let boxOpen={};try{boxOpen=JSON.parse(localStorage.getItem(KEY+'-boxOpen')||'{}')}catch(e){}
+document.addEventListener('toggle',e=>{const k=e.target.dataset&&e.target.dataset.keep;if(!k)return;boxOpen[k]=e.target.open;
+  try{localStorage.setItem(KEY+'-boxOpen',JSON.stringify(boxOpen))}catch(x){}
+  const h=e.target.querySelector('summary .hint');if(h)h.textContent=e.target.open?'按這裡收起':'按這裡展開'},true);
+function boxHTML(k,title,body,extra){return `<details class="panel fc-box" data-keep="${k}" ${boxOpen[k]?'open':''} ${extra||''}><summary><span class="sub">${title}</span><span class="hint">${boxOpen[k]?'按這裡收起':'按這裡展開'}</span></summary>${body}</details>`}
+// 系列一覽直接從現有品項算出來，新增品項後自動更新。
+function seriesList(){const m=new Map();
+  S.items.filter(i=>!i.off&&CODE_RE.test(i.code)).sort((x,y)=>x.code.localeCompare(y.code)).forEach(i=>{const k=i.code.slice(1,6);
+    if(!m.has(k))m.set(k,{pl:k.slice(0,2),se:k.slice(2),items:[],types:new Set()});const g=m.get(k);g.items.push(i);g.types.add(i.type)});
+  return [...m.values()].sort((x,y)=>(x.pl+x.se).localeCompare(y.pl+y.se)).map(g=>({...g,rep:(g.items.find(i=>i.type==='成品')||g.items[0]).name,types:TYPES.filter(t=>g.types.has(t))}))}
+function nextCode(lv,pl,se){
+  if(!se){const used=S.items.filter(i=>CODE_RE.test(i.code)&&i.code.slice(1,3)===pl).map(i=>+i.code.slice(3,6));se=String(Math.max(pl==='00'?4:0,...used)+1).padStart(3,'0')}
+  const pre=lv+pl+se+'-',used=S.items.filter(i=>i.code.startsWith(pre)).map(i=>+i.code.slice(7));
+  return pre+String(Math.max(0,...used)+1).padStart(3,'0')}
+function rulesHTML(){return `<div class="tablebox"><table><tbody>
+    <tr><th>格式</th><td>□ □□ □□□-□□□，共 9 碼數字（6 碼＋橫線＋3 碼）</td></tr>
+    <tr><th>第 1 碼 層級</th><td>這東西的角色，見下表</td></tr>
+    <tr><th>第 2-3 碼 產品線</th><td>屬於哪個產品線，見下表</td></tr>
+    <tr><th>第 4-6 碼 系列</th><td>哪一個口味／品種。同一系列在成品、半成品、包材、標籤都用同一個號碼</td></tr>
+    <tr><th>橫線後 3 碼 規格</th><td>哪一種包裝或哪一張標，同系列內從 001 依序編，不帶其他意思</td></tr></tbody></table></div>
+  <div class="grid-f" style="align-items:start">
+  <div class="tablebox"><table><thead><tr><th>碼</th><th>層級</th><th>判斷方式</th></tr></thead><tbody>
+    <tr><td class="mono">1</td><td>成品</td><td style="white-space:normal">會單獨賣給客人的東西（就算它也被裝進禮盒），例如耳掛單包、米磚、禮盒</td></tr>
+    <tr><td class="mono">2</td><td>半成品</td><td style="white-space:normal">還沒貼標、還沒包裝的內容物，或進貨後還要加工的東西，例如散裝甘草橄欖、茶磚</td></tr>
+    <tr><td class="mono">3</td><td>包材</td><td style="white-space:normal">盒、袋、提繩、隔板等包裝</td></tr>
+    <tr><td class="mono">4</td><td>標籤</td><td style="white-space:normal">貼紙、中文標、腰條、吊牌</td></tr>
+    <tr><td class="mono">9</td><td>客製</td><td style="white-space:normal">依客戶需求訂做，例如客製化感謝卡</td></tr></tbody></table></div>
+  <div class="tablebox"><table><thead><tr><th>碼</th><th>產品線</th></tr></thead><tbody>${Object.entries(PLINE).map(([k,v])=>`<tr><td class="mono">${k}</td><td>${v}</td></tr>`).join('')}</tbody></table></div></div>
+  <div><p class="sub">系列號的特殊規則</p><ul class="hint" style="margin:4px 0;padding-left:20px;line-height:1.8">
+    <li>一般品項：001 起依口味／品種編，例如果乾梅 02 的 009 是甘草橄欖。</li>
+    <li>同產品線內共用的東西用 000，例如 307000-001 米磚真空袋（所有米磚共用）。</li>
+    <li>跨產品線共用的包材用產品線 00，系列依包材種類：001 袋、002 盒/隔板、003 提繩、004 提袋。</li></ul></div>
+  <div><p class="sub">新增品項的步驟</p><ol class="hint" style="margin:4px 0;padding-left:20px;line-height:1.8">
+    <li>決定層級：會不會單獨賣？還沒加工？是包材還是標籤？</li>
+    <li>決定產品線；被兩條以上產品線共用的包材用 00。</li>
+    <li>到「系列一覽」找有沒有同口味／品種的系列，有就沿用系列號，沒有就用該產品線下一個號碼。</li>
+    <li>規格碼用該「層級＋產品線＋系列」底下的下一個號碼。（「新增品項」裡的「帶出下一個料號」會自動算）</li>
+    <li>有貼標或包裝加工的成品，記得在 BOM 放入它的半成品內容物、包材和標籤。</li>
+    <li>一個實體東西只有一個料號；共用關係交給 BOM，不寫進料號。</li></ol></div>`}
+function seriesHTML(){const L=seriesList();
+  return `<div class="row"><input class="rowfilter" data-target="#seBody" placeholder="搜尋系列或品名" style="max-width:260px"><span class="hint">共 ${L.length} 個系列，依現有品項自動整理</span></div>
+  <div class="tablebox"><table><thead><tr><th>產品線</th><th>系列號</th><th>代表品項</th><th>已用到的層級</th><th class="n">品項數</th></tr></thead><tbody id="seBody">${L.map(g=>`<tr><td>${g.pl} ${esc(PLINE[g.pl]||'')}</td><td class="mono">${g.se}</td><td>${esc(g.rep)}</td><td>${g.types.join('、')}</td><td class="n">${g.items.length}</td></tr>`).join('')}</tbody></table></div>`}
 function itemsHTML(){
   const used=new Set(S.docs.flatMap(d=>d.lines.map(l=>l.item)));
-  const rows=S.items.map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td>${i.type}</td><td>${esc(i.cat||'')}</td><td>${esc(i.unit)}</td><td class="n">${i.cost!=null?fmt(i.cost):''}</td><td class="n">${i.price!=null?fmt(i.price):''}</td><td>${esc(i.vendor||'')}</td><td>${S.bom[i.id]?`<button type="button" class="btn small obom" data-id="${i.id}">BOM（${S.bom[i.id].length}）</button>`:(can('bom')&&i.type==='成品'?`<button type="button" class="btn small obom" data-id="${i.id}">＋ 設定</button>`:'')}</td>
+  const list=S.items.slice().sort((a,b)=>(a.off?1:0)-(b.off?1:0));const offN=list.filter(i=>i.off).length;
+  const rows=list.map(i=>`<tr ${i.off?'style="opacity:.55"':''}><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}${i.off?` <span class="pill mid" title="${esc(i.offReason||'')}">停用</span>`:''}</td><td>${i.type}</td><td>${esc(i.cat||'')}</td><td>${esc(i.unit)}</td><td class="n">${i.cost!=null?fmt(i.cost):''}</td><td class="n">${i.price!=null?fmt(i.price):''}</td><td>${esc(i.vendor||'')}</td><td>${S.bom[i.id]?`<button type="button" class="btn small obom" data-id="${i.id}">BOM（${S.bom[i.id].length}）</button>`:(can('bom')&&!i.off&&(i.type==='成品'||i.type==='客製')?`<button type="button" class="btn small obom" data-id="${i.id}">＋ 設定</button>`:'')}</td>
     <td class="n"><input class="ied" data-id="${i.id}" data-f="safety" id="is-${i.id}" type="number" min="0" value="${i.safety}" style="width:90px" ${can('items')?'':'disabled'}></td>
     <td class="n"><input class="ied" data-id="${i.id}" data-f="open" id="io-${i.id}" type="number" min="0" value="${i.open}" style="width:90px" ${can('items')?'':'disabled'}></td>
     <td>${!can('items')?'':used.has(i.id)?'<span class="hint">已有單據</span>':`<button type="button" class="btn small danger idel" data-id="${i.id}">刪除</button>`}</td></tr>`).join('');
-  return `<div><h2>品項清單</h2><p class="lead">一開始設定一次就好。其他單據的品名都從這裡選，不會打錯字，庫存也就不會漏算。品項已從「進銷存20260309.xlsx」的品項主檔匯入（有出貨價或 BOM 的算成品，其他算半成品）。</p></div>
-  ${can('items')?'':'<p class="hint">目前是一般人員，品項只能查看。要新增或修改請切換成管理者。</p>'}
-  <form class="panel" id="itemForm" ${can('items')?'':'hidden'}>
+  const sel=(id,opts)=>`<select id="${id}">${opts}</select>`;
+  const addBody=`<form id="itemForm" style="display:flex;flex-direction:column;gap:12px">
+    <div class="grid-f" style="align-items:end">
+      <label class="f">層級${sel('n-lv',Object.entries(LVL).map(([k,v])=>`<option value="${k}">${k} ${v}</option>`).join(''))}</label>
+      <label class="f">產品線${sel('n-pl',Object.entries(PLINE).map(([k,v])=>`<option value="${k}">${k} ${v}</option>`).join(''))}</label>
+      <label class="f">系列號<input id="n-se" list="n-ses" inputmode="numeric" maxlength="3" placeholder="空白＝開新系列"><datalist id="n-ses"></datalist></label>
+      <div><button type="button" class="btn small" id="n-gen">帶出下一個料號</button></div>
+    </div>
+    <p class="hint" style="margin:-4px 0 0">選好層級、產品線，系列號可從清單挑現有系列（同口味沿用同一號），按「帶出下一個料號」會自動填好料號和類別。</p>
     <div class="grid-f">
-      <label class="f">料號<input id="n-code" placeholder="例如：009100-001"></label>
-      <label class="f">品名<input id="n-name" placeholder="例如：蘆薈洗潔精"></label>
-      <label class="f">類別<select id="n-type"><option>半成品</option><option>成品</option></select></label>
+      <label class="f">料號<input id="n-code" placeholder="例如：102009-002"></label>
+      <label class="f">品名<input id="n-name" placeholder="例如：甘草橄欖 150g/袋"></label>
+      <label class="f">類別<select id="n-type">${TYPES.map(t=>`<option>${t}</option>`).join('')}</select></label>
       <label class="f">單位<input id="n-unit" placeholder="個、片、箱"></label>
       <label class="f">進貨價<input id="n-cost" type="number" min="0" step="any" inputmode="decimal"></label>
       <label class="f">出貨價<input id="n-price" type="number" min="0" step="any" inputmode="decimal"></label>
@@ -1094,21 +1148,38 @@ function itemsHTML(){
     <p class="err" id="n-err"></p>
     <div><button type="submit" class="btn primary">新增品項</button></div>
   </form>
-  <section class="panel"><div class="tablebox"><div class="row"><input id="iq" class="rowfilter" data-target="#itemBody" placeholder="搜尋料號、品名或廠商" style="max-width:260px"><span class="hint">共 ${S.items.length} 個品項</span></div><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th>產品類別</th><th>單位</th><th class="n">進貨價</th><th class="n">出貨價</th><th>廠商</th><th>BOM</th><th class="n">安全庫存</th><th class="n">期初</th><th></th></tr></thead><tbody id="itemBody">${rows}</tbody></table></div><p class="hint">安全庫存和期初可以直接改，改完自動存檔。進貨價、出貨價會在採購單、銷貨單自動帶入。</p></section>
-  <form class="panel" id="importForm" ${can('items')?'':'hidden'}>
-    <div><p class="sub">從 Excel 一次匯入商品</p><p class="hint">在 Excel 選取六欄後複製貼上：料號、品名、類別（半成品或成品）、單位、安全庫存、期初數量。第一列是標題也沒關係，料號已存在的會更新。</p></div>
-    <textarea id="imp-text" rows="6" style="font:inherit;font-size:13px;width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px" placeholder="009100-001	新商品	成品	1包	20	50"></textarea>
+  <form id="importForm" style="display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--line);padding-top:12px">
+    <div><p class="sub">從 Excel 一次匯入商品</p><p class="hint">在 Excel 選取六欄後複製貼上：料號、品名、類別（成品、半成品、包材、標籤或客製）、單位、安全庫存、期初數量。第一列是標題也沒關係，料號已存在的會更新。</p></div>
+    <textarea id="imp-text" rows="6" style="font:inherit;font-size:13px;width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px" placeholder="102009-002	甘草橄欖 150g/袋	成品	1包	20	50"></textarea>
     <p class="err" id="imp-err"></p>
     <div><button type="submit" class="btn primary">匯入</button></div>
   </form>`;
+  const recBody=`<p class="hint">選擇「品項重新編碼」的 JSON 檔。會先自動下載一份備份，再依對照表把舊料號換成新料號、更新品名和類別、新增新品項、停用不再使用的品項，並用檔案裡的 BOM 取代現有 BOM。品項內部編號不變，舊單據和庫存都照算。重複套用同一個檔不會重複新增。</p>
+    <div class="row"><button type="button" class="btn" id="recodeBtn">選擇檔案並套用</button><input type="file" id="recodeFile" accept=".json,application/json" hidden>${S.recoded?`<span class="hint">上次套用：${esc(S.recoded.version)}（${esc(S.recoded.at)}）</span>`:''}</div>`;
+  return `<div><h2>品項清單</h2><p class="lead">其他單據的品名都從這裡選，不會打錯字，庫存也就不會漏算。料號依下方「編碼規則」編，停用的品項不會出現在選單和庫存表裡，舊單據照樣保留。</p></div>
+  ${can('items')?'':'<p class="hint">目前是一般人員，品項只能查看。要新增或修改請切換成管理者。</p>'}
+  ${boxHTML('rule','編碼規則',rulesHTML())}
+  ${boxHTML('series','系列一覽',seriesHTML())}
+  ${can('items')?boxHTML('add','新增品項',addBody):''}
+  ${can('data')?boxHTML('recode','套用品項重新編碼檔',recBody):''}
+  <section class="panel"><div class="tablebox"><div class="row"><input id="iq" class="rowfilter" data-target="#itemBody" placeholder="搜尋料號、品名或廠商" style="max-width:260px"><span class="hint">共 ${S.items.length-offN} 個品項${offN?`，另有 ${offN} 個停用`:''}</span></div><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th>產品類別</th><th>單位</th><th class="n">進貨價</th><th class="n">出貨價</th><th>廠商</th><th>BOM</th><th class="n">安全庫存</th><th class="n">期初</th><th></th></tr></thead><tbody id="itemBody">${rows}</tbody></table></div><p class="hint">安全庫存和期初可以直接改，改完自動存檔。進貨價、出貨價會在採購單、銷貨單自動帶入。</p></section>`;
 }
+function fillSeries(){const pl=$('#n-pl'),dl=$('#n-ses');if(!pl||!dl)return;
+  dl.innerHTML=seriesList().filter(g=>g.pl===pl.value).map(g=>`<option value="${g.se}">${esc(g.rep)}</option>`).join('')}
+document.addEventListener('change',e=>{if(e.target.id==='n-pl')fillSeries()});
+document.addEventListener('toggle',e=>{if(e.target.dataset&&e.target.dataset.keep==='add'&&e.target.open)fillSeries()},true);
+document.addEventListener('click',e=>{if(e.target.id!=='n-gen')return;
+  const lv=$('#n-lv').value,pl=$('#n-pl').value,se=$('#n-se').value.trim();
+  if(se&&!/^\d{3}$/.test(se)){$('#n-err').textContent='系列號要 3 碼數字，例如 009；要開新系列就留空白。';return}
+  $('#n-err').textContent='';$('#n-code').value=nextCode(lv,pl,se);$('#n-type').value=LVL[lv];
+  if(!se)toast('已用產品線 '+pl+' 的下一個新系列')});
 document.addEventListener('submit',e=>{
   if(e.target.id!=='itemForm')return;e.preventDefault();if(!can('items'))return;
   const name=$('#n-name').value.trim(),code=$('#n-code').value.trim();
   if(!code){$('#n-err').textContent='請填料號。';return}
   if(!name){$('#n-err').textContent='請填品名。';return}
   if(S.items.some(i=>i.code===code)){$('#n-err').textContent='這個料號已經用過了。';return}
-  S.items.push({id:'i'+Date.now(),code,name,type:$('#n-type').value,unit:$('#n-unit').value.trim()||'個',cost:$('#n-cost').value===''?null:+$('#n-cost').value,price:$('#n-price').value===''?null:+$('#n-price').value,vendor:$('#n-vendor').value.trim(),safety:+$('#n-safety').value||0,open:+$('#n-open').value||0});
+  S.items.push({id:'i'+Date.now(),code,name,type:$('#n-type').value,cat:CODE_RE.test(code)?code.slice(1,3)+' '+(PLINE[code.slice(1,3)]||''):'',unit:$('#n-unit').value.trim()||'個',cost:$('#n-cost').value===''?null:+$('#n-cost').value,price:$('#n-price').value===''?null:+$('#n-price').value,vendor:$('#n-vendor').value.trim(),safety:+$('#n-safety').value||0,open:+$('#n-open').value||0});
   save();render();toast('已新增 '+name);
 });
 document.addEventListener('change',e=>{if(!e.target.classList.contains('ied')||!can('items'))return;const i=S.items.find(x=>x.id===e.target.dataset.id);if(!i)return;i[e.target.dataset.f]=+e.target.value||0;save();toast('已更新 '+i.name)});
@@ -1119,11 +1190,43 @@ document.addEventListener('submit',e=>{
   const rows=$('#imp-text').value.split(/\r?\n/).map(r=>r.split(/\t|,/).map(c=>c.trim())).filter(r=>r[0]&&r[1]&&r[0]!=='料號');
   if(!rows.length){$('#imp-err').textContent='沒有讀到資料，請確認每列至少有料號和品名。';return}
   let add=0,upd=0;
-  rows.forEach((r,n)=>{const type=r[2]==='成品'?'成品':'半成品';const ex=S.items.find(i=>i.code===r[0]);
+  rows.forEach((r,n)=>{const type=TYPES.includes(r[2])?r[2]:'半成品';const ex=S.items.find(i=>i.code===r[0]);
     const v={code:r[0],name:r[1],type,unit:r[3]||'個',safety:+r[4]||0,open:+r[5]||0};
     if(ex){Object.assign(ex,v);upd++}else{S.items.push({id:'i'+Date.now()+'-'+n,...v});add++}});
   save();render();toast('新增 '+add+' 筆、更新 '+upd+' 筆');
 });
+// 套用品項重新編碼檔（品項重新編碼-*.json）：依舊料號找到品項改成新料號，品項內部 id 不變，舊單據照算。
+function applyRecode(R){
+  const byCode=new Map(S.items.map(i=>[i.code,i])),byId=new Map(S.items.map(i=>[i.id,i]));
+  const find=c=>c&&(byCode.get(c)||byId.get(c));
+  // 先決定每一列對到哪個品項，再一起改，避免新舊料號互相干擾
+  const plan=R.items.map(r=>({r,it:byCode.get(r.code)||find(r.old)||null}));
+  let upd=0,add=0,miss=[],offN=0;const idOf={};
+  plan.forEach(({r,it})=>{
+    if(it){Object.assign(it,{code:r.code,name:r.name,type:r.type,cat:r.cat||'',unit:r.unit||it.unit});delete it.off;delete it.offReason;upd++}
+    else{if(r.old)miss.push(r.old);
+      const id=byId.has(r.code)?'n'+r.code:r.code;it={id,code:r.code,name:r.name,type:r.type,cat:r.cat||'',unit:r.unit||'個',cost:null,price:null,vendor:'',safety:0,open:0};S.items.push(it);byId.set(id,it);add++}
+    idOf[r.code]=it.id});
+  (R.stop||[]).forEach(x=>{const it=find(x.old);if(it&&!Object.values(idOf).includes(it.id)){it.off=true;it.offReason=x.reason||'';offN++}});
+  const bom={};let bad=0;
+  Object.entries(R.bom||{}).forEach(([fc,comps])=>{const fid=idOf[fc]||(byCode.get(fc)||{}).id;if(!fid){bad++;return}
+    const c=comps.map(x=>({item:idOf[x.code]||(S.items.find(i=>i.code===x.code)||{}).id,qty:+x.qty})).filter(x=>x.item&&x.qty>0);
+    bad+=comps.length-c.length;if(c.length)bom[fid]=c});
+  S.bom=bom;
+  S.items.sort((a,b)=>a.code.localeCompare(b.code));S.items.forEach((i,n)=>i._o=n);
+  const left=S.items.filter(i=>!i.off&&!Object.values(idOf).includes(i.id)).length;
+  const at=new Date().toLocaleString('zh-TW',{hour12:false});
+  S.recoded={version:R.version||'',at};
+  const sum=`更新 ${upd}、新增 ${add}、停用 ${offN}、BOM ${Object.keys(bom).length} 項`;
+  S.audit.unshift({no:'品項',action:'修改',at,by:role==='admin'?'管理者':'一般人員',reason:'品項重新編碼 '+(R.version||''),changes:[sum+(miss.length?`；找不到舊料號 ${miss.join('、')}，已當新品項建立`:'')+(left?`；有 ${left} 個品項不在檔案裡，沒有改`:'')+(bad?`；BOM 有 ${bad} 列對不到品項`:'')]});
+  save();render();toast('已套用：'+sum);
+  return {upd,add,offN,bom:Object.keys(bom).length,miss,left,bad}}
+document.addEventListener('click',e=>{if(e.target.id==='recodeBtn'&&can('data'))$('#recodeFile').click()});
+document.addEventListener('change',e=>{if(e.target.id!=='recodeFile')return;const f=e.target.files[0];e.target.value='';if(!f||!can('data'))return;
+  const rd=new FileReader();rd.onload=()=>{let R;try{R=JSON.parse(rd.result);if(R.kind!=='jxc-recode'||!Array.isArray(R.items))throw 0}catch(x){toast('這個檔案不是品項重新編碼檔');return}
+    if(!confirm(`要套用「${R.version||f.name}」嗎？\n共 ${R.items.length} 個品項、停用 ${(R.stop||[]).length} 個、BOM ${Object.keys(R.bom||{}).length} 項。\n現有 BOM 會被檔案裡的 BOM 取代。按確定後會先下載一份備份。`))return;
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='進銷存備份-套用編碼前-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();
+    applyRecode(R)};rd.readAsText(f)});
 $('#backup').addEventListener('click',async()=>{
   const dl=window.claude&&await window.claude.use('downloads');
   if(dl){try{const r=await dl.save({filename:'進銷存備份-'+today()+'.json',data:JSON.stringify(S,null,1)});if(r&&r.status==='saved')toast('已下載備份檔')}catch(e){if(e&&e.code!=='cancelled')toast('沒有下載備份檔')}return}
@@ -1261,7 +1364,7 @@ document.addEventListener('submit',e=>{
 /* ---------- BOM 設定 ---------- */
 function bomRow(sel,qty){return `<div class="line noprice"><label class="f">半成品／包材${picker('bi','',sel)}</label><label class="f">每個成品用量<input class="bq" type="number" min="0" step="any" value="${qty??''}"></label><button type="button" class="btn small brm" aria-label="移除這一列">✕</button></div>`}
 function bomPageHTML(){
-  const list=S.items.filter(i=>i.type==='成品'||S.bom[i.id]);const has=list.filter(i=>S.bom[i.id]).length;
+  const list=S.items.filter(i=>!i.off&&(i.type==='成品'||i.type==='客製')||S.bom[i.id]);const has=list.filter(i=>S.bom[i.id]).length;
   return `<div><h2>BOM 設定</h2><p class="lead">每個成品是用哪些半成品和包材做的。生產單按「依 BOM 自動帶入領料」就會照這裡算。${can('bom')?'':'目前是一般人員，只能查看；要修改請切換成管理者。'}</p></div>
   <section class="panel">
     <div class="row between"><b>${list.length} 個成品，${has} 個已設定 BOM</b><input id="bq" class="rowfilter" data-target="#bomBody" placeholder="搜尋料號或品名" style="max-width:260px"></div>
@@ -1288,7 +1391,7 @@ document.addEventListener('click',e=>{
   if(e.target.id==='bomSave'){if(!can('bom'))return;const id=$('#bomBox').dataset.id;const comps=[];
     document.querySelectorAll('#bomLines .line').forEach(r=>{const i=r.querySelector('.bi').value,q=+r.querySelector('.bq').value;if(i&&q>0&&i!==id)comps.push({item:i,qty:q})});
     const it=S.items.find(x=>x.id===id);
-    if(comps.length){S.bom[id]=comps;if(it.type!=='成品'){it.type='成品'}}else delete S.bom[id];
+    if(comps.length){S.bom[id]=comps;if(it.type!=='成品'&&it.type!=='客製'){it.type='成品'}}else delete S.bom[id];
     save();closeDoc();render();toast(comps.length?'已存檔 '+it.name+' 的 BOM（'+comps.length+' 項）':'已清除 '+it.name+' 的 BOM');return}
 });
 
@@ -1320,7 +1423,7 @@ function countHTML(){
   const date=countDate||today();
   const sys=stockUntil(dayBefore(date));
   const cur=S.count;
-  const rows=S.items.map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td>${i.type}</td><td class="n">${fmt(sys[i.id].bal)}</td><td class="n"><input class="cnt" data-id="${esc(i.id)}" type="number" step="any" value="${sys[i.id].bal}" style="max-width:110px;text-align:right"></td><td>${esc(i.unit)}</td></tr>`).join('');
+  const rows=S.items.filter(i=>!i.off||sys[i.id].bal).map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}${i.off?' <span class="pill mid">停用</span>':''}</td><td>${i.type}</td><td class="n">${fmt(sys[i.id].bal)}</td><td class="n"><input class="cnt" data-id="${esc(i.id)}" type="number" step="any" value="${sys[i.id].bal}" style="max-width:110px;text-align:right"></td><td>${esc(i.unit)}</td></tr>`).join('');
   return `<div><h2>盤點重設</h2><p class="lead">在盤點日把實際點到的數量填進來，存檔後庫存就從這一天重新起算。盤點日當天和之後的單據會加減在盤點數量上，之前的單據不會被刪掉，只是不再影響庫存，歷史查詢還是看得到。</p></div>
   ${cur?`<section class="panel"><p class="sub" style="margin:0">目前的盤點：<b>${esc(cur.date)}</b>（${esc(cur.at||'')} ${esc(cur.by||'')} 存檔，共 ${Object.keys(cur.qty).length} 項）</p>
     <div class="row"><button type="button" class="btn" id="countClear">取消盤點，改回原本的期初計算</button></div></section>`:''}
