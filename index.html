@@ -806,7 +806,7 @@ let formPhotos=[];const PH={};
 function typeUI(){const x=$('#f-type')&&$('#f-type').value==='xfer';const l=$('#f-partyLbl');if(l)l.textContent=x?'調撥到（地點）':KINDS.SO.party;if(x&&$('#partyInfo'))$('#partyInfo').hidden=true}
 document.addEventListener('change',e=>{if(e.target.id==='f-type'){typeUI();if(e.target.value!=='xfer')showPartyInfo()}});
 function payPanel(d){
-  const po=d.kind==='PO';if(!(d.kind==='SO'&&!d.xfer)&&!(po&&stepN(d)>=2))return '';
+  const po=d.kind==='PO';if(!(d.kind==='SO'&&!d.xfer)&&!po)return '';
   const w=po?'付':'收',a=amount(d),p=paidOf(d),ps=payState(d);
   return `<div class="row"><span>應${w} <b class="mono">${money(a)}</b>，已${w} <b class="mono">${money(p)}</b>，未${w} <b class="mono">${money(a-p)}</b></span><span class="pill ${ps[1]}">${ps[0]}</span></div>${p>=a?'':`<div class="row"><label class="f" style="flex:1;max-width:220px">本次${w}款金額<input id="payIn" type="number" min="0" inputmode="decimal" value="${a-p}"></label><label class="f" style="max-width:160px">經手人（必填）<input id="payBy" list="st-bys"></label><label class="f" style="max-width:160px">${w}款方式<select id="payMethod">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label><button type="button" class="btn primary" id="savePay" style="align-self:flex-end">登記${w}款</button></div>`}
   ${d.pays&&d.pays.length?`<div class="hint">${w}款紀錄：${d.pays.map(x=>`${esc(x.at)} ${esc(x.method)} ${money(x.amt)}${x.by?'（'+esc(x.by)+'）':''}`).join('；')}</div>`:''}`}
@@ -904,6 +904,9 @@ function fillEdit(){
 }
 function logHTML(d){if(!d.log||!d.log.length)return '';
   return `<details><summary class="sub" style="cursor:pointer">修改紀錄（${d.log.length}）</summary><div class="tablebox"><table><thead><tr><th>時間</th><th>修改人</th><th>原因</th><th>變更內容</th></tr></thead><tbody>${d.log.slice().reverse().map(g=>`<tr><td>${esc(g.at)}</td><td>${esc(g.by)}</td><td>${esc(g.reason||'')}</td><td style="white-space:normal">${g.changes.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div></details>`}
+// 先收／付清款項的單：流程走到「收款／付款」這一步時自動完成，不用再按一次確認。
+function autoPay(d,by){const F=flowOf(d);if(!F)return false;const nx=F[stepN(d)];
+  if(nx&&nx.k==='pay'&&amount(d)>0&&paidOf(d)>=amount(d)){d.steps.push({at:today(),by:((d.pays||[]).slice(-1)[0]||{}).by||by||'',auto:true});return true}return false}
 function openDoc(no){
   const d=S.docs.find(x=>x.no===no);if(!d)return;const k=KINDS[d.kind];delArm=false;
   let action='';
@@ -1019,13 +1022,13 @@ $('#overlay').addEventListener('click',e=>{
       document.querySelectorAll('.acc').forEach(x=>{d.lines[+x.dataset.i].acc=+x.value})}
     if(nx.k==='pay'&&(d.kind==='SO'||d.kind==='PO')&&paidOf(d)<amount(d)){const st=d.steps[d.steps.length-1],pm=$('#st-pm').value,pd=paidOf(d);st.prevPaid=d.paid??null;st.method=pm;st.hadPaid=d.paid!=null;
       (d.pays=d.pays||[]).push({at:st.at,amt:amount(d)-pd,method:pm,by:st.by,step:true});d.paid=amount(d)}
-    save();render();openDoc(d.no);toast(d.no+' '+nx.done+(nx.k==='ship'&&!d.xfer?'，記得列印出貨單＋收據隨貨附上':''));return}
+    const ap=autoPay(d,by0);save();render();openDoc(d.no);toast(d.no+' '+nx.done+(ap?'，款項已'+(d.kind==='PO'?'付':'收')+'清，付款步驟自動完成':'')+(nx.k==='ship'&&!d.xfer?'，記得列印出貨單＋收據隨貨附上':''));return}
   if(e.target.id==='stBack'){if(stepN(d)>1&&can('back')){const f=flowOf(d)[stepN(d)-1];{const st=d.steps.pop();if(st.prevPaid!=null||st.hadPaid===false){if(st.hadPaid===false)delete d.paid;else d.paid=st.prevPaid;if(d.pays&&d.pays.length&&d.pays[d.pays.length-1].step)d.pays.pop()}
         if(f.k==='recv')d.lines.forEach(l=>delete l.acc)}save();render();openDoc(d.no);toast('已退回，取消「'+f.t+'」')}return}
   if(e.target.id==='saveRet'){document.querySelectorAll('.ret').forEach((inp,i)=>{d.lines[i].ret=Math.max(0,Math.min(d.lines[i].qty,+inp.value||0));d.lines[i].price=+$('#prc-'+i).value||0});d.donation=+$('#donIn').value||0;document.querySelectorAll('.eqb').forEach(c=>{const q=d.equip[+c.dataset.i];if(q){if(c.checked)q.back=true;else delete q.back}});d.returned=true;save();render();openDoc(d.no);toast('已登記歸還');return}
   if(e.target.id==='savePay'){const v=+$('#payIn').value||0;if(v<=0)return;const pb=$('#payBy').value.trim();if(!pb){toast('請先填經手人');$('#payBy').focus();return}
     d.paid=paidOf(d)+v;(d.pays=d.pays||[]).push({at:today(),amt:v,method:$('#payMethod').value,by:pb});
-    const nx=flowOf(d)[stepN(d)];if(d.paid>=amount(d)&&nx&&nx.k==='pay')d.steps.push({at:today(),by:pb});save();render();openDoc(d.no);toast((d.kind==='PO'?'已登記付款 ':'已登記收款 ')+money(v));return}
+    autoPay(d,pb);save();render();openDoc(d.no);toast((d.kind==='PO'?'已登記付款 ':'已登記收款 ')+money(v));return}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#overlay').hidden)closeDoc()});
 
