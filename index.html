@@ -1004,11 +1004,17 @@ function receiptHTML(d){
     <tr><td colspan="5" class="cap">合計新臺幣 ${capNum(tot)} 元整</td></tr>
   </table></div>`;
 }
+// 列印存成 PDF 時，瀏覽器用網頁標題當檔名：YYYYMMDD銷貨單-客戶
+const PRINT_NAME={SO:'銷貨單',PO:'採購單',MO:'生產單',EX:'外展單'};
+function printTitle(){const bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no);if(!d||$('#overlay').hidden)return;
+  document.title=((d.date||'').replace(/-/g,'')+(d.xfer?'調撥單':PRINT_NAME[d.kind]||'單據')+(d.party?'-'+d.party:'')).replace(/[\\/:*?"<>|]/g,'_')}
+window.addEventListener('beforeprint',printTitle);
+window.addEventListener('afterprint',()=>{document.title='小團隊進銷存'});
 function closeDoc(){$('#overlay').hidden=true;$('#overlay').innerHTML='';document.body.style.overflow=''}
 $('#overlay').addEventListener('click',e=>{
   const bar=$('.sheetbar');const d=bar&&S.docs.find(x=>x.no===bar.dataset.no);
   if(e.target.id==='overlay'||e.target.id==='closeDoc'){closeDoc();return}
-  if(e.target.id==='printDoc'){window.print();return}
+  if(e.target.id==='printDoc'){printTitle();window.print();return}
   if(!d)return;
   if(e.target.id==='editDoc'){if(!can('edit'))return;const no=d.no,kd=d.kind;closeDoc();editing=no;formOpen=true;page=kd;try{localStorage.setItem(KEY+'-page',kd)}catch(x){}renderTabs();render();return}
   if(e.target.id==='delDoc'){if(!can('del'))return;if(!delArm){delArm=true;e.target.textContent='再按一次確認刪除';return}
