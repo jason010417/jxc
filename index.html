@@ -1373,9 +1373,18 @@ function permHTML(){
     <p class="hint">這是單機檔案的權限，用來避免誤刪誤改；懂電腦的人還是可以繞過，所以請記得定期備份。</p>
   </form>
   <section class="panel"><p class="sub" style="margin:0">所有單據的修改與刪除紀錄</p>
-    ${S.audit.length?`<input class="rowfilter" id="aq" data-target="#auditBody" placeholder="搜尋單號、修改人" style="max-width:260px"><div class="tablebox"><table><thead><tr><th>時間</th><th>單號</th><th>動作</th><th>修改人</th><th>原因</th><th>變更內容</th></tr></thead><tbody id="auditBody">${S.audit.slice(0,300).map(g=>`<tr class="${S.docs.some(x=>x.no===g.no)?'click':''}" ${S.docs.some(x=>x.no===g.no)?`data-doc="${g.no}"`:''}><td>${esc(g.at)}</td><td class="mono">${esc(g.no)}</td><td>${g.action==='刪除'?'<span class="pill bad">刪除</span>':'<span class="pill mid">修改</span>'}</td><td>${esc(g.by)}</td><td>${esc(g.reason||'')}</td><td style="white-space:normal">${g.changes.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">目前還沒有修改或刪除紀錄。</p>'}
+    ${S.audit.length?`<div class="row"><input class="rowfilter" id="aq" data-target="#auditBody" placeholder="搜尋單號、修改人" style="max-width:260px">${role==='admin'?'<button type="button" class="btn small" id="auAll">全選目前列出的</button><button type="button" class="btn small danger" id="auDel">刪除勾選的紀錄</button><span class="hint">只刪紀錄，不會把單據改回去</span>':''}</div><div class="tablebox"><table><thead><tr>${role==='admin'?'<th></th>':''}<th>時間</th><th>單號</th><th>動作</th><th>修改人</th><th>原因</th><th>變更內容</th></tr></thead><tbody id="auditBody">${S.audit.slice(0,300).map(g=>`<tr class="${S.docs.some(x=>x.no===g.no)?'click':''}" ${S.docs.some(x=>x.no===g.no)?`data-doc="${g.no}"`:''}>${role==='admin'?`<td><input type="checkbox" class="auc" data-k="${esc(g._k||'')}" style="width:auto"></td>`:''}<td>${esc(g.at)}</td><td class="mono">${esc(g.no)}</td><td>${g.action==='刪除'?'<span class="pill bad">刪除</span>':'<span class="pill mid">修改</span>'}</td><td>${esc(g.by)}</td><td>${esc(g.reason||'')}</td><td style="white-space:normal">${g.changes.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">目前還沒有修改或刪除紀錄。</p>'}
   </section>`;
 }
+// 管理者可刪除測試用的修改紀錄（連同單據裡同一筆修改紀錄），單據內容不會改回去。
+document.addEventListener('click',e=>{if(e.target.classList.contains('auc'))e.stopPropagation()},true);
+document.addEventListener('click',e=>{if(e.target.id!=='auAll'||role!=='admin')return;const cs=[...document.querySelectorAll('#auditBody tr')].filter(r=>!r.hidden&&r.style.display!=='none').map(r=>r.querySelector('.auc')).filter(Boolean);const on=!cs.every(c=>c.checked);cs.forEach(c=>c.checked=on)});
+document.addEventListener('click',e=>{if(e.target.id!=='auDel'||role!=='admin')return;
+  const ks=new Set([...document.querySelectorAll('.auc:checked')].map(c=>c.dataset.k).filter(Boolean));if(!ks.size){toast('請先勾選要刪除的紀錄');return}
+  if(!confirm(`確定刪除勾選的 ${ks.size} 筆修改紀錄嗎？刪除後無法復原，單據內容不會改回去。`))return;
+  const gone=S.audit.filter(g=>ks.has(g._k));
+  gone.forEach(g=>{const d=S.docs.find(x=>x.no===g.no);if(d&&d.log){d.log=d.log.filter(l=>!(l.at===g.at&&l.by===g.by&&(l.reason||'')===(g.reason||'')));if(!d.log.length)delete d.log}});
+  S.audit=S.audit.filter(g=>!ks.has(g._k));save();render();toast('已刪除 '+gone.length+' 筆修改紀錄')});
 // 收據印章存在雲端 jxc/stamps，不放進備份檔與公開的網站檔案。
 function stampImg(f){return new Promise((ok,bad)=>{const r=new FileReader();r.onerror=bad;r.onload=()=>{const im=new Image();im.onerror=bad;im.onload=()=>{
   const k=Math.min(1,360/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
