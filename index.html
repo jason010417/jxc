@@ -77,6 +77,7 @@ tfoot td{font-weight:700;border-bottom:0}
 @media (max-width:520px){.equip{grid-template-columns:minmax(0,1fr)}}
 .eqgrp{border-top:1px dashed var(--line);padding-top:8px;display:flex;flex-direction:column;gap:6px}
 .eqsub{padding-left:22px}
+#exWrap.daily .eq:not([data-d]),#exWrap.daily .eqgrp,#exWrap.daily .exnd,#exWrap:not(.daily) .eq.od{display:none!important}
 .eqlist{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px 16px}
 .eqlist label{display:flex;gap:6px;align-items:flex-start;font-size:14px}
 .eqlist input{width:auto;flex:none;margin-top:4px}
@@ -457,7 +458,9 @@ const exSales=d=>d.returned?d.lines.reduce((a,l)=>a+(l.qty-(l.ret||0))*exPrice(l
 // 設備清單：一般設備，加上三台機器；機器勾了才展開它的配件（g = 所屬機器）。
 const EQ_BASE=['零用金','捐款箱','LinePay','TWQR','桌巾','外展桌','板凳','電風扇','收據','價格牌','酒精','衛生紙','延長線','大洋傘+腳'];
 const EQ_GROUPS=[['爆米花機',['試吃罐','鹹甜 2KG 裝爆米花','免洗杯','湯匙','手套']],['棉花糖機',['竹籤','飲用水','溫度計']],['茶桶',['免洗杯']]];
-const EQUIP=[...EQ_BASE.map(n=>({n,g:''})),...EQ_GROUPS.flatMap(([m,subs])=>[{n:m,g:''},...subs.map(n=>({n,g:m}))])];
+// 平日外展只帶這幾樣，品項只有爆米花 100g
+const EQ_DAILY=['零用金','零錢箱','計算機','提籃'];
+const EQUIP=[...EQ_BASE.map(n=>({n,g:''})),...EQ_DAILY.filter(n=>!EQ_BASE.includes(n)).map(n=>({n,g:''})),...EQ_GROUPS.flatMap(([m,subs])=>[{n:m,g:''},...subs.map(n=>({n,g:m}))])];
 const eqName=n=>n.replace('（只有保溫功能）','');
 const eqLabel=q=>q.g?q.g+'－'+q.n:eqName(q.n);
 const eqIdx=q=>{const n=eqName(q.n),g=q.g||'';let i=EQUIP.findIndex(e=>e.n===n&&e.g===g);if(i<0&&!g)i=EQUIP.findIndex(e=>e.n===n);return i};
@@ -612,7 +615,7 @@ function kindHTML(kind){
   const head=`<tr><th>單號</th>${FLOW[kind]?'<th>流程進度</th>':''}${kind==='SO'?'<th>收款</th>':kind==='PO'?'<th>付款</th>':''}<th>日期</th><th>${kind==='SO'?'客戶／調撥地點':k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>lname(l)+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'||kind==='PO'?payState(d):null;
-    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
+    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
   const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'');
   return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶或調撥到其他地點時填一張，收款可以分次登記。'}[kind]}</p></div>
     <button type="button" class="btn primary" id="toggleForm">${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
@@ -638,7 +641,7 @@ function kindHTML(kind){
   <section class="panel">${FLOW[kind]?`<div class="row between"><div class="seg" id="lf">${[['open','進行中'],['done','已完成'],['all','全部']].map(([k2,t])=>`<button type="button" data-f="${k2}" aria-pressed="${lf===k2}">${t}（${all.filter(d=>k2==='all'||(k2==='open'?!flowDone(d):flowDone(d))).length}）</button>`).join('')}</div><span class="hint">流程：${FLOW[kind].map(f=>f.t).join(' → ')}</span></div>`:''}<input id="dq" class="rowfilter" data-target="#docBody" placeholder="搜尋單號、${k.party}、品名" style="max-width:300px"><div class="tablebox">${docs.length?`<table><thead>${head}</thead><tbody id="docBody">${rows}</tbody></table>`:'<p class="empty">還沒有單據，按右上角新增第一張。</p>'}</div><p class="hint">點任一張單可以看 A4 版面${kind==='EX'?'、登記歸還':''}${kind==='SO'?'、登記收款':''}。</p></section>`;
 }
 document.addEventListener('click',e=>{
-  if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;render();return}
+  if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;exDaily=false;render();return}
   const add=e.target.closest('.addline');
   if(add){const box=add.parentElement.previousElementSibling;box.insertAdjacentHTML('beforeend',lineHTML(page,add.dataset.type,add.dataset.dir));return}
   const rm=e.target.closest('.rm');
@@ -712,11 +715,11 @@ document.addEventListener('submit',e=>{
     (d.log=d.log||[]).push(entry);S.audit.unshift({no:d.no,action:'修改',...entry});
     d.date=date;d.party=party||'—';d.lines=lines;if(d.steps&&d.steps[0])d.steps[0].at=date;
     if(ty!=null){if(ty)d.xfer=true;else delete d.xfer}
-    if(exv){exv.equip.forEach(q=>{const o=(d.equip||[]).find(x=>eqLabel(x)===eqLabel(q));if(o&&o.back)q.back=true;if(o&&o.out)q.out=true});d.ev=exv.ev;d.equip=exv.equip}
+    if(exv){exv.equip.forEach(q=>{const o=(d.equip||[]).find(x=>eqLabel(x)===eqLabel(q));if(o&&o.back)q.back=true;if(o&&o.out)q.out=true});d.ev=exv.ev;d.equip=exv.equip;if(exv.daily)d.daily=true;else delete d.daily}
     if(tk!=null){if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk}
     if(av){if(av.arr)d.arr=av.arr;else delete d.arr;if(av.arr2)d.arr2=av.arr2;else delete d.arr2}
     if(cu){if(cu.custom){d.custom=true;d.spec=cu.spec;if(!d.pk)d.pk=newKey('p')}else{delete d.custom;delete d.spec}}
-    save();const no=d.no;editing=null;formOpen=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
+    save();const no=d.no;editing=null;formOpen=false;exDaily=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
   const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};
   if(kind==='SO'){doc.paid=0;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2;
     if($('#f-type').value==='xfer')doc.xfer=true}
@@ -724,10 +727,10 @@ document.addEventListener('submit',e=>{
   const cu=kind==='SO'?customVal():null;
   if(cu&&cu.custom){doc.custom=true;doc.spec=cu.spec;doc.pk=newKey('p');if(formPhotos.length){doc.photos=formPhotos.length;putPhotos(doc.pk,formPhotos.slice())}}
   formPhotos=[];
-  if(kind==='EX'){doc.returned=false;doc.ev=exv.ev;doc.equip=exv.equip}
+  if(kind==='EX'){doc.returned=false;doc.ev=exv.ev;doc.equip=exv.equip;if(exv.daily)doc.daily=true}
   if(kind==='PO')doc.paid=0;
   if(FLOW[kind])doc.steps=[{at:date,by:doc.taker||''}];
-  S.docs.push(doc);save();formOpen=false;render();toast('已存檔 '+doc.no);openDoc(doc.no);
+  S.docs.push(doc);save();formOpen=false;exDaily=false;render();toast('已存檔 '+doc.no);openDoc(doc.no);
 });
 
 /* ---------- 待辦工作 ---------- */
@@ -821,30 +824,40 @@ function exInfoHTML(d){const ev=d.ev||{};if(!ev.link&&!ev.note&&!(d.equip||[]).l
 function exPaperExtra(d){const ev=d.ev||{},eq=d.equip||[];
   return `${eq.length?`<table><thead><tr><th>設備</th><th>數量／備註</th><th style="width:5em">帶出</th><th style="width:5em">帶回</th></tr></thead><tbody>${eq.map(q=>`<tr><td>${q.g?'　└ '+esc(q.n):esc(eqName(q.n))}</td><td>${esc(q.note||'')}</td><td style="text-align:center">${q.out?'☑':'☐'}</td><td style="text-align:center">${q.back?'☑':'☐'}</td></tr>`).join('')}</tbody></table>`:''}`}
 function otherRow(o){return `<div class="line exo"><label class="f">品名（不算庫存）<input class="on" value="${esc(o?o.name:'')}" placeholder="例如：手作香包、多肉植栽"></label><label class="f">數量<input class="oq" type="number" min="0" step="any" inputmode="decimal" value="${o?o.qty:''}"></label><label class="f">售價（可留空）<input class="op" type="number" min="0" step="any" inputmode="decimal" value="${o&&o.price!=null?o.price:''}"></label><button type="button" class="btn small orm" aria-label="移除這一列">✕</button></div>`}
-function exFormHTML(){const st=stock();
-  return `<p class="sub">活動細節</p>
+let exDaily=false;
+function dailyItem(){const L=S.items.filter(i=>!i.off&&i.type==='成品');return L.find(i=>i.code==='103008-003')||L.find(i=>/爆米花/.test(i.name)&&/100\s*g/i.test(i.name+i.unit))}
+function exFormHTML(){const st=stock(),di=dailyItem();
+  return `<div id="exWrap" class="${exDaily?'daily':''}" style="display:flex;flex-direction:column;gap:12px">
+    <div class="row"><div class="seg" id="exMode"><button type="button" data-m="0" aria-pressed="${!exDaily}">一般外展</button><button type="button" data-m="1" aria-pressed="${exDaily}">平日外展</button></div><span class="hint">平日外展：品項只有爆米花 100g，設備是零用金、零錢箱、計算機、提籃。</span></div>
+    <p class="sub">活動細節</p>
     <label class="f">活動連結<input id="f-evlink" type="url" inputmode="url" placeholder="https://"></label>
     <label class="f">文字說明<textarea id="f-evnote" rows="3" placeholder="時間、地點、聯絡人、注意事項⋯"></textarea></label>
     <p class="sub">設備確認（勾選這次要帶的）</p>
     ${eqFormHTML()}
-    <div class="row between"><p class="sub">帶出的成品（填數量，沒帶的留空，不會印出來）</p><input class="rowfilter" data-target="#exBody" placeholder="搜尋成品" style="max-width:220px"></div>
-    <div class="tablebox exbox"><table><thead><tr><th>料號</th><th>品名</th><th class="n">現有庫存</th><th style="width:110px">帶出數量</th></tr></thead><tbody id="exBody">${S.items.filter(i=>i.type==='成品'&&!i.off).map(i=>`<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td class="n">${fmt(st[i.id]?st[i.id].cur:0)}</td><td><input class="exq" data-item="${i.id}" type="number" min="0" step="any" inputmode="decimal"></td></tr>`).join('')}</tbody></table></div>
-    <p class="sub">其它（工藝品、植栽等，自己輸入，不算庫存）</p>
-    <div id="exOther" style="display:flex;flex-direction:column;gap:8px">${otherRow()}</div>
-    <div><button type="button" class="btn small" id="addOther">＋ 加一列</button></div>`}
-function eqCell(i){const e=EQUIP[i];return `<div class="eq"><label><input type="checkbox" class="eqc" data-i="${i}" ${EQ_GROUPS.some(g=>g[0]===e.n)&&!e.g?`data-main="${e.n}"`:''}>${e.n}</label><input class="eqn" data-i="${i}" placeholder="${e.n==='零用金'?'金額':'數量／備註'}"></div>`}
+    <div class="row between"><p class="sub">帶出的成品（填數量，沒帶的留空，不會印出來）</p><input class="rowfilter exnd" data-target="#exBody" placeholder="搜尋成品" style="max-width:220px"></div>
+    <div class="tablebox exbox"><table><thead><tr><th>料號</th><th>品名</th><th class="n">現有庫存</th><th style="width:110px">帶出數量</th></tr></thead><tbody id="exBody">${S.items.filter(i=>i.type==='成品'&&!i.off).map(i=>`<tr ${di&&i.id===di.id?'data-d="1"':'class="exnd"'}><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td class="n">${fmt(st[i.id]?st[i.id].cur:0)}</td><td><input class="exq" data-item="${i.id}" type="number" min="0" step="any" inputmode="decimal"></td></tr>`).join('')}</tbody></table></div>
+    <p class="sub exnd">其它（工藝品、植栽等，自己輸入，不算庫存）</p>
+    <div id="exOther" class="exnd" style="display:flex;flex-direction:column;gap:8px">${otherRow()}</div>
+    <div class="exnd"><button type="button" class="btn small" id="addOther">＋ 加一列</button></div></div>`}
+function setExDaily(on,fill){exDaily=on;const w=$('#exWrap');if(!w)return;w.classList.toggle('daily',on);
+  document.querySelectorAll('#exMode button').forEach(b=>b.setAttribute('aria-pressed',String((b.dataset.m==='1')===on)));
+  if(on&&fill){const cs=[...document.querySelectorAll('.eq[data-d] .eqc')];if(!cs.some(c=>c.checked))cs.forEach(c=>c.checked=true);
+    const p=$('#f-party');if(p&&!p.value.trim())p.value='平日外展'}}
+document.addEventListener('click',e=>{const b=e.target.closest('#exMode button');if(b)setExDaily(b.dataset.m==='1',true)});
+function eqCell(i){const e=EQUIP[i];return `<div class="eq${EQ_BASE.includes(e.n)||e.g||EQ_GROUPS.some(g=>g[0]===e.n)?'':' od'}" ${EQ_DAILY.includes(e.n)?'data-d="1"':''}><label><input type="checkbox" class="eqc" data-i="${i}" ${EQ_GROUPS.some(g=>g[0]===e.n)&&!e.g?`data-main="${e.n}"`:''}>${e.n}</label><input class="eqn" data-i="${i}" placeholder="${e.n==='零用金'?'金額':'數量／備註'}"></div>`}
 function eqFormHTML(){const ix=f=>EQUIP.map((e,i)=>f(e)?i:-1).filter(i=>i>=0);
-  return `<div class="equip">${ix(e=>!e.g&&EQ_BASE.includes(e.n)).map(eqCell).join('')}</div>
+  return `<div class="equip">${ix(e=>!e.g&&(EQ_BASE.includes(e.n)||EQ_DAILY.includes(e.n))).map(eqCell).join('')}</div>
   ${EQ_GROUPS.map(([m])=>`<div class="eqgrp"><div class="equip">${eqCell(EQUIP.findIndex(e=>e.n===m&&!e.g))}</div><div class="equip eqsub" data-g="${m}" hidden>${ix(e=>e.g===m).map(eqCell).join('')}</div></div>`).join('')}`}
 function eqSync(){document.querySelectorAll('.eqc[data-main]').forEach(c=>{const b=$(`.eqsub[data-g="${c.dataset.main}"]`);if(b)b.hidden=!c.checked})}
 document.addEventListener('change',e=>{if(e.target.classList.contains('eqc')&&e.target.dataset.main)eqSync()});
 function exFormVal(){
-  const lines=[];document.querySelectorAll('.exq').forEach(x=>{const q=+x.value;if(q>0)lines.push({item:x.dataset.item,qty:q,ret:0})});
-  document.querySelectorAll('#exOther .exo').forEach(r=>{const n=r.querySelector('.on').value.trim(),q=+r.querySelector('.oq').value,pv=r.querySelector('.op').value;
+  const ok=el=>!exDaily||el.closest('[data-d]');
+  const lines=[];document.querySelectorAll('.exq').forEach(x=>{if(!ok(x))return;const q=+x.value;if(q>0)lines.push({item:x.dataset.item,qty:q,ret:0})});
+  if(!exDaily)document.querySelectorAll('#exOther .exo').forEach(r=>{const n=r.querySelector('.on').value.trim(),q=+r.querySelector('.oq').value,pv=r.querySelector('.op').value;
     if(n&&q>0){const l={other:true,name:n,qty:q,ret:0};if(pv!=='')l.price=+pv||0;lines.push(l)}});
   const on=new Set([...document.querySelectorAll('.eqc[data-main]')].filter(c=>c.checked).map(c=>c.dataset.main));
-  const equip=[];document.querySelectorAll('.eqc').forEach(c=>{const e=EQUIP[+c.dataset.i];if(c.checked&&(!e.g||on.has(e.g))){const q={n:e.n,note:$(`.eqn[data-i="${c.dataset.i}"]`).value.trim()};if(e.g)q.g=e.g;equip.push(q)}});
-  return {lines,ev:{link:$('#f-evlink').value.trim(),note:$('#f-evnote').value.trim()},equip};
+  const equip=[];document.querySelectorAll('.eqc').forEach(c=>{const e=EQUIP[+c.dataset.i];if(c.checked&&ok(c)&&(exDaily||!c.closest('.od'))&&(!e.g||on.has(e.g))){const q={n:e.n,note:$(`.eqn[data-i="${c.dataset.i}"]`).value.trim()};if(e.g)q.g=e.g;equip.push(q)}});
+  return {lines,ev:{link:$('#f-evlink').value.trim(),note:$('#f-evnote').value.trim()},equip,daily:exDaily};
 }
 const equipText=eq=>(eq||[]).map(e=>eqLabel(e)+(e.note?'('+e.note+')':'')).join('、');
 document.addEventListener('click',e=>{
@@ -889,7 +902,7 @@ function fillEdit(){
   $('#f-date').value=d.date;$('#f-party').value=d.party==='—'?'':d.party;showPartyInfo();
   if($('#f-type')){$('#f-type').value=d.xfer?'xfer':'sale';typeUI()}
   if($('#f-taker'))$('#f-taker').value=d.taker||'';
-  if(d.kind==='EX'){$('#f-evlink').value=(d.ev&&d.ev.link)||'';$('#f-evnote').value=(d.ev&&d.ev.note)||'';
+  if(d.kind==='EX'){setExDaily(!!d.daily);$('#f-evlink').value=(d.ev&&d.ev.link)||'';$('#f-evnote').value=(d.ev&&d.ev.note)||'';
     (d.equip||[]).forEach(q=>{const i=eqIdx(q);if(i<0)return;$(`.eqc[data-i="${i}"]`).checked=true;$(`.eqn[data-i="${i}"]`).value=q.note||''});eqSync();
     d.lines.forEach(l=>{if(l.other)return;const x=$(`.exq[data-item="${l.item}"]`);if(x)x.value=l.qty});
     const os=d.lines.filter(l=>l.other);if(os.length)$('#exOther').innerHTML=os.map(otherRow).join('')}
