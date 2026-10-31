@@ -1171,8 +1171,20 @@ function itemsHTML(){
   ${boxHTML('series','系列一覽',seriesHTML())}
   ${can('items')?boxHTML('add',ed?'修改品項：'+esc(ed.code+' '+ed.name):'新增品項',addBody,'id="addBox"'):''}
   ${can('data')?boxHTML('recode','套用品項重新編碼檔',recBody):''}
-  <section class="panel"><div class="tablebox"><div class="row"><input id="iq" class="rowfilter" data-target="#itemBody" placeholder="搜尋料號、品名或廠商" style="max-width:260px"><span class="hint">共 ${S.items.length-offN} 個品項${offN?`，另有 ${offN} 個停用`:''}</span></div><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th>產品類別</th><th>單位</th><th class="n">進貨價</th><th class="n">出貨價</th><th>廠商</th><th>BOM</th><th class="n">安全庫存</th><th class="n">期初</th><th></th></tr></thead><tbody id="itemBody">${rows}</tbody></table></div><p class="hint">安全庫存和期初可以直接改，改完自動存檔。進貨價、出貨價會在採購單、銷貨單自動帶入。</p></section>`;
+  <section class="panel"><div class="tablebox"><div class="row"><input id="iq" class="rowfilter" data-target="#itemBody" placeholder="搜尋料號、品名或廠商" style="max-width:260px"><span class="hint">共 ${S.items.length-offN} 個品項${offN?`，另有 ${offN} 個停用`:''}</span><button type="button" class="btn small" id="itemXlsx">匯出 Excel</button></div><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th>產品類別</th><th>單位</th><th class="n">進貨價</th><th class="n">出貨價</th><th>廠商</th><th>BOM</th><th class="n">安全庫存</th><th class="n">期初</th><th></th></tr></thead><tbody id="itemBody">${rows}</tbody></table></div><p class="hint">安全庫存和期初可以直接改，改完自動存檔。進貨價、出貨價會在採購單、銷貨單自動帶入。</p></section>`;
 }
+// 匯出品項清單與 BOM 成 Excel（SheetJS 用到時才載入）
+function loadXLSX(){return window.XLSX?Promise.resolve(window.XLSX):new Promise((ok,no)=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';sc.onload=()=>ok(window.XLSX);sc.onerror=no;document.head.appendChild(sc)})}
+document.addEventListener('click',async e=>{if(e.target.id!=='itemXlsx')return;
+  let X;try{X=await loadXLSX()}catch(x){toast('Excel 元件載入失敗，請確認網路後再試');return}
+  const st=stockUntil('9999-12-31'),list=S.items.slice().sort((a,b)=>(a.off?1:0)-(b.off?1:0)||a.code.localeCompare(b.code));
+  const rows=[['料號','品名','類別','產品線','單位','進貨價','出貨價','廠商','安全庫存','期初','目前庫存','狀態','停用原因']].concat(list.map(i=>[i.code,i.name,i.type,i.cat||'',i.unit,i.cost??'',i.price??'',i.vendor||'',+i.safety||0,+i.open||0,st[i.id]?st[i.id].bal:0,i.off?'停用':'使用中',i.offReason||'']));
+  const bom=[['成品料號','成品品名','材料料號','材料品名','材料類別','每個用量']];
+  list.forEach(i=>(S.bom[i.id]||[]).forEach(c=>{const m=item(c.item)||{};bom.push([i.code,i.name,m.code||'',m.name||'',m.type||'',c.qty])}));
+  const wb=X.utils.book_new(),w1=X.utils.aoa_to_sheet(rows),w2=X.utils.aoa_to_sheet(bom);
+  w1['!cols']=[12,32,8,14,8,8,8,18,8,8,8,8,24].map(w=>({wch:w}));w2['!cols']=[12,32,12,32,8,8].map(w=>({wch:w}));
+  X.utils.book_append_sheet(wb,w1,'品項清單');X.utils.book_append_sheet(wb,w2,'BOM');
+  X.writeFile(wb,'品項清單-'+today().replace(/-/g,'')+'.xlsx');toast('已下載品項清單 Excel')});
 function fillSeries(){const pl=$('#n-pl'),dl=$('#n-ses');if(!pl||!dl)return;
   dl.innerHTML=seriesList().filter(g=>g.pl===pl.value).map(g=>`<option value="${g.se}">${esc(g.rep)}</option>`).join('')}
 document.addEventListener('change',e=>{if(e.target.id==='n-pl')fillSeries()});
