@@ -1436,10 +1436,25 @@ function permHTML(){
     <div><button type="submit" class="btn primary">存檔密碼</button></div>
     <p class="hint">這是單機檔案的權限，用來避免誤刪誤改；懂電腦的人還是可以繞過，所以請記得定期備份。</p>
   </form>
+  <section class="panel"><p class="sub" style="margin:0">匯入單據檔</p><p class="hint">補登舊系統的單據用（例如「銷貨補登-*.json」）。單號已經存在的會跳過，不會重複。</p>
+    <div class="row"><button type="button" class="btn" id="docImpBtn">選擇檔案並匯入</button><input type="file" id="docImpFile" accept=".json,application/json" hidden></div></section>
   <section class="panel"><p class="sub" style="margin:0">所有單據的修改與刪除紀錄</p>
     ${S.audit.length?`<div class="row"><input class="rowfilter" id="aq" data-target="#auditBody" placeholder="搜尋單號、修改人" style="max-width:260px">${role==='admin'?'<button type="button" class="btn small" id="auAll">全選目前列出的</button><button type="button" class="btn small danger" id="auDel">刪除勾選的紀錄</button><span class="hint">只刪紀錄，不會把單據改回去</span>':''}</div><div class="tablebox"><table><thead><tr>${role==='admin'?'<th></th>':''}<th>時間</th><th>單號</th><th>動作</th><th>修改人</th><th>原因</th><th>變更內容</th></tr></thead><tbody id="auditBody">${S.audit.slice(0,300).map(g=>`<tr class="${S.docs.some(x=>x.no===g.no)?'click':''}" ${S.docs.some(x=>x.no===g.no)?`data-doc="${g.no}"`:''}>${role==='admin'?`<td><input type="checkbox" class="auc" data-k="${esc(g._k||'')}" style="width:auto"></td>`:''}<td>${esc(g.at)}</td><td class="mono">${esc(g.no)}</td><td>${g.action==='刪除'?'<span class="pill bad">刪除</span>':'<span class="pill mid">修改</span>'}</td><td>${esc(g.by)}</td><td>${esc(g.reason||'')}</td><td style="white-space:normal">${g.changes.map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="empty">目前還沒有修改或刪除紀錄。</p>'}
   </section>`;
 }
+// 匯入單據檔 {kind:'jxc-docs',docs:[...]}：品項先用內部 id 對，對不到再用料號對；單號重複就跳過。
+document.addEventListener('click',e=>{if(e.target.id==='docImpBtn'&&role==='admin')$('#docImpFile').click()});
+document.addEventListener('change',e=>{if(e.target.id!=='docImpFile')return;const f=e.target.files[0];e.target.value='';if(!f||role!=='admin')return;
+  const rd=new FileReader();rd.onload=()=>{let R;try{R=JSON.parse(rd.result);if(R.kind!=='jxc-docs'||!Array.isArray(R.docs))throw 0}catch(x){toast('這個檔案不是單據匯入檔');return}
+    const have=new Set(S.docs.map(d=>d.no)),add=[],skip=[],bad=[];
+    R.docs.forEach(d=>{if(have.has(d.no)){skip.push(d.no);return}
+      const ls=d.lines.map(l=>{const it=S.items.find(i=>i.id===l.item)||S.items.find(i=>i.code===l.code);if(!it){bad.push(d.no+' '+(l.code||l.item));return null}const o={...l,item:it.id};delete o.code;return o});
+      if(ls.includes(null))return;const nd=JSON.parse(JSON.stringify(d));nd.lines=ls;delete nd._o;add.push(nd)});
+    if(!add.length){toast(bad.length?'品項對不到：'+bad.join('、'):'這些單據都已經在系統裡了');return}
+    if(!confirm(`要匯入 ${add.length} 張單據嗎？\n${add.map(d=>d.no+' '+d.party).join('\n')}${skip.length?`\n\n已存在、會跳過：${skip.join('、')}`:''}${bad.length?`\n\n品項對不到、不匯入：${bad.join('、')}`:''}`))return;
+    add.forEach(d=>S.docs.push(d));
+    S.audit.unshift({no:'匯入',action:'修改',at:new Date().toLocaleString('zh-TW',{hour12:false}),by:'管理者',reason:'匯入單據檔 '+(R.version||f.name),changes:['新增 '+add.map(d=>d.no).join('、')]});
+    save();render();toast('已匯入 '+add.length+' 張單據')};rd.readAsText(f)});
 // 管理者可刪除測試用的修改紀錄（連同單據裡同一筆修改紀錄），單據內容不會改回去。
 document.addEventListener('click',e=>{if(e.target.classList.contains('auc'))e.stopPropagation()},true);
 document.addEventListener('click',e=>{if(e.target.id!=='auAll'||role!=='admin')return;const cs=[...document.querySelectorAll('#auditBody tr')].filter(r=>!r.hidden&&r.style.display!=='none').map(r=>r.querySelector('.auc')).filter(Boolean);const on=!cs.every(c=>c.checked);cs.forEach(c=>c.checked=on)});
