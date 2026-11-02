@@ -1183,6 +1183,7 @@ function itemsHTML(){
   ${boxHTML('rule','編碼規則',rulesHTML())}
   ${boxHTML('series','系列一覽',seriesHTML())}
   ${can('items')?boxHTML('add',ed?'修改品項：'+esc(ed.code+' '+ed.name):'新增品項',addBody,'id="addBox"'):''}
+  ${can('data')?boxHTML('xlup','從 Excel 更新品項與盤點',xlupBody()):''}
   ${can('data')?boxHTML('recode','套用品項重新編碼檔',recBody):''}
   <section class="panel"><div class="tablebox"><div class="row"><input id="iq" class="rowfilter" data-target="#itemBody" placeholder="搜尋料號、品名或廠商" style="max-width:260px"><span class="hint">共 ${S.items.length-offN} 個品項${offN?`，另有 ${offN} 個停用`:''}</span><button type="button" class="btn small" id="itemXlsx">匯出 Excel</button></div><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th>產品類別</th><th>單位</th><th class="n">進貨價</th><th class="n">出貨價</th><th>廠商</th><th>BOM</th><th class="n">安全庫存</th><th class="n">期初</th><th></th></tr></thead><tbody id="itemBody">${rows}</tbody></table></div><p class="hint">安全庫存和期初可以直接改，改完自動存檔。進貨價、出貨價會在採購單、銷貨單自動帶入。</p></section>`;
 }
@@ -1198,6 +1199,69 @@ document.addEventListener('click',async e=>{if(e.target.id!=='itemXlsx')return;
   w1['!cols']=[12,32,8,14,8,8,8,18,8,8,8,8,24].map(w=>({wch:w}));w2['!cols']=[12,32,12,32,8,8].map(w=>({wch:w}));
   X.utils.book_append_sheet(wb,w1,'品項清單');X.utils.book_append_sheet(wb,w2,'BOM');
   X.writeFile(wb,'品項清單-'+today().replace(/-/g,'')+'.xlsx');toast('已下載品項清單 Excel')});
+// 從「匯出 Excel」格式的檔案更新品項：品名、類別、單位、價格、廠商、安全庫存、停用，新料號會新增；BOM 分頁會取代現有 BOM；期初欄可當盤點數量（空白＝沒盤到，沿用系統數量）。
+let xlPlan=null;
+function xlupBody(){return `<p class="hint">選一份用「匯出 Excel」下載、改過的品項清單。會先列出要改的地方，確認後才套用。「期初」欄有填的當作盤點數量，空白的代表沒盤到，沿用系統算出的數量。</p>
+  <div class="grid-f"><label class="f">盤點日（這一天開始營業前的數量）<input type="date" id="xl-date" value="${today()}"></label><label class="f">盤點人<input id="xl-by" placeholder="例如：小美"></label></div>
+  <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="xl-count" checked style="width:auto">把「期初」欄當作盤點數量，庫存從盤點日重新起算</label>
+  <div class="row"><button type="button" class="btn" id="xlBtn">選擇 Excel 檔</button><input type="file" id="xlFile" accept=".xlsx,.xls" hidden></div>
+  <div id="xlOut">${xlPlan?xlPlanHTML(xlPlan):''}</div>`}
+const xv=v=>v==null||(typeof v==='string'&&!v.trim())?null:typeof v==='string'?v.trim():v;
+function xlParse(X,wb){
+  const sh=wb.Sheets['品項清單']||wb.Sheets[wb.SheetNames[0]];if(!sh)throw '找不到品項清單分頁';
+  const rows=X.utils.sheet_to_json(sh,{header:1,defval:null});const h=(rows[0]||[]).map(x=>String(x||'').trim());const c=n=>h.indexOf(n);
+  if(c('料號')<0||c('品名')<0)throw '第一列要有「料號」「品名」欄';
+  const items=rows.slice(1).filter(r=>xv(r[c('料號')])).map(r=>{const g=n=>c(n)<0?undefined:xv(r[c(n)]);return {code:String(g('料號')),name:g('品名'),type:g('類別'),cat:g('產品線'),unit:g('單位'),cost:g('進貨價'),price:g('出貨價'),vendor:g('廠商'),safety:g('安全庫存'),open:g('期初'),state:g('狀態')}});
+  let bom=null;const bs=wb.Sheets['BOM'];if(bs){const br=X.utils.sheet_to_json(bs,{header:1,defval:null});const bh=(br[0]||[]).map(x=>String(x||'').trim());
+    const fi=bh.indexOf('成品料號'),mi=bh.indexOf('材料料號'),qi=bh.indexOf('每個用量');if(fi>=0&&mi>=0&&qi>=0){bom={};br.slice(1).forEach(r=>{const f=xv(r[fi]),m=xv(r[mi]),q=+xv(r[qi]);if(f&&m&&q>0)(bom[String(f)]=bom[String(f)]||[]).push({code:String(m),qty:q})})}}
+  return {items,bom}}
+function xlMakePlan(P,date,doCount){
+  const byCode=new Map(S.items.map(i=>[i.code,i]));const lab={name:'品名',type:'類別',unit:'單位',cost:'進貨價',price:'出貨價',vendor:'廠商',safety:'安全庫存'};
+  const upd=[],add=[],bad=[];
+  P.items.forEach(r=>{if(r.type&&!TYPES.includes(r.type)){bad.push(r.code+' 類別「'+r.type+'」不認得');r.type=null}
+    const it=byCode.get(r.code);const nv={name:r.name==null?null:String(r.name),type:r.type,unit:r.unit==null?null:String(r.unit),cost:r.cost==null?null:+r.cost,price:r.price==null?null:+r.price,vendor:r.vendor==null?'':String(r.vendor),safety:r.safety==null?0:+r.safety||0};
+    if(r.state==='停用')nv.off=true;else if(r.state==='使用中')nv.off=false;
+    if(!it){add.push({r,nv});return}
+    const ch=[];Object.keys(lab).forEach(k=>{if(k==='name'||k==='type'||k==='unit'){if(nv[k]==null)return}const a=it[k]??(k==='vendor'?'':k==='safety'?0:null),b=nv[k];if(String(a??'')!==String(b??''))ch.push([k,a,b])});
+    if(nv.off!=null&&!!it.off!==nv.off)ch.push(['off',!!it.off,nv.off]);
+    if(ch.length)upd.push({it,nv,ch})});
+  let count=null;
+  if(doCount){const sys=stockUntil(dayBefore(date)),q={},m=new Map(P.items.map(r=>[r.code,r]));let n=0,keep=0;
+    S.items.forEach(i=>{const r=m.get(i.code);if(r&&r.open!=null&&!isNaN(+r.open)){q[i.id]=+r.open;n++}else{q[i.id]=sys[i.id]?sys[i.id].bal:0;keep++}});
+    add.forEach(({r})=>{if(r.open!=null&&!isNaN(+r.open))n++});count={date,q,n,keep}}
+  return {P,upd,add,bad,count,lab}}
+function xlPlanHTML(L){const f=v=>v===true?'停用':v===false?'使用中':v==null||v===''?'（空白）':esc(String(v));
+  const cnt={};L.upd.forEach(u=>u.ch.forEach(c=>cnt[c[0]]=(cnt[c[0]]||0)+1));
+  const lab={...L.lab,off:'停用狀態'};
+  return `<div class="pinfo" style="display:flex;flex-direction:column;gap:6px">
+    <b>確認後會這樣改：</b>
+    <div>修改 ${L.upd.length} 個品項${Object.keys(cnt).length?'（'+Object.entries(cnt).map(([k,n])=>lab[k]+' '+n).join('、')+'）':''}；新增 ${L.add.length} 個品項${L.add.length?'：'+L.add.map(a=>esc(a.r.code+' '+(a.r.name||''))).join('、'):''}</div>
+    ${L.P.bom?`<div>BOM 換成檔案裡的 ${Object.keys(L.P.bom).length} 個成品</div>`:''}
+    ${L.count?`<div>盤點日 ${L.count.date}：有填數量 ${L.count.n} 項，空白 ${L.count.keep} 項沿用系統數量${S.count?`（會取代目前 ${esc(S.count.date)} 的盤點）`:''}</div>`:''}
+    ${L.bad.length?`<div class="err">${L.bad.map(esc).join('<br>')}</div>`:''}
+    ${L.upd.length?`<details><summary class="hint" style="cursor:pointer">看修改明細</summary><div class="tablebox"><table><thead><tr><th>料號</th><th>品名</th><th>欄位</th><th>原本</th><th>改成</th></tr></thead><tbody>${L.upd.flatMap(u=>u.ch.map(c=>`<tr><td class="mono">${esc(u.it.code)}</td><td>${esc(u.it.name)}</td><td>${lab[c[0]]}</td><td>${f(c[1])}</td><td>${f(c[2])}</td></tr>`)).join('')}</tbody></table></div></details>`:''}
+    <div class="row"><button type="button" class="btn primary" id="xlApply">確認套用</button><button type="button" class="btn" id="xlCancel">取消</button><span class="hint">按確認會先下載一份備份</span></div></div>`}
+function xlApply(L){
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='進銷存備份-Excel更新前-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();
+  L.upd.forEach(({it,nv,ch})=>ch.forEach(([k,,b])=>{if(k==='off'){if(b)it.off=true;else{delete it.off;delete it.offReason}}else it[k]=b}));
+  const ids=new Set(S.items.map(i=>i.id));
+  L.add.forEach(({r,nv})=>{const id=ids.has(r.code)?'n'+r.code:r.code;ids.add(id);const it={id,code:r.code,name:nv.name||r.code,type:nv.type||'半成品',cat:CODE_RE.test(r.code)?r.code.slice(1,3)+' '+(PLINE[r.code.slice(1,3)]||''):String(r.cat||''),unit:nv.unit||'個',cost:nv.cost,price:nv.price,vendor:nv.vendor,safety:nv.safety,open:0};if(nv.off)it.off=true;S.items.push(it);
+    if(L.count)L.count.q[id]=r.open!=null&&!isNaN(+r.open)?+r.open:0});
+  let bomBad=0;if(L.P.bom){const byCode=new Map(S.items.map(i=>[i.code,i.id]));const nb={};
+    Object.entries(L.P.bom).forEach(([fc,cs])=>{const fid=byCode.get(fc);if(!fid){bomBad++;return}const c=cs.map(x=>({item:byCode.get(x.code),qty:x.qty})).filter(x=>x.item);bomBad+=cs.length-c.length;if(c.length)nb[fid]=c});S.bom=nb}
+  S.items.sort((x,y)=>x.code.localeCompare(y.code));S.items.forEach((i,n)=>i._o=n);
+  const at=new Date().toLocaleString('zh-TW',{hour12:false}),by=$('#xl-by').value.trim()||(role==='admin'?'管理者':'一般人員');
+  if(L.count)S.count={date:L.count.date,qty:L.count.q,at,by};
+  const sum=`修改 ${L.upd.length}、新增 ${L.add.length} 個品項`+(L.P.bom?`、BOM ${Object.keys(S.bom).length} 項`:'')+(L.count?`、盤點日 ${L.count.date}（填 ${L.count.n} 項，其餘沿用系統數量）`:'')+(bomBad?`；BOM 有 ${bomBad} 列對不到品項`:'');
+  S.audit.unshift({no:L.count?'盤點':'品項',action:'修改',at,by,reason:'從 Excel 更新品項',changes:[sum]});
+  xlPlan=null;save();render();toast('已套用：'+sum)}
+document.addEventListener('click',e=>{if(e.target.id==='xlBtn'&&can('data'))$('#xlFile').click();
+  if(e.target.id==='xlCancel'){xlPlan=null;$('#xlOut').innerHTML=''}
+  if(e.target.id==='xlApply'&&xlPlan&&can('data'))xlApply(xlPlan)});
+document.addEventListener('change',async e=>{if(e.target.id!=='xlFile')return;const f=e.target.files[0];e.target.value='';if(!f||!can('data'))return;
+  const date=$('#xl-date').value,doCount=$('#xl-count').checked;if(doCount&&!date){toast('請先選盤點日');return}
+  let X;try{X=await loadXLSX()}catch(x){toast('Excel 元件載入失敗，請確認網路後再試');return}
+  try{const wb=X.read(await f.arrayBuffer(),{type:'array'});xlPlan=xlMakePlan(xlParse(X,wb),date,doCount);$('#xlOut').innerHTML=xlPlanHTML(xlPlan)}catch(err){$('#xlOut').innerHTML=`<p class="err">${esc(typeof err==='string'?err:'讀不到這個 Excel 檔')}</p>`}});
 function fillSeries(){const pl=$('#n-pl'),dl=$('#n-ses');if(!pl||!dl)return;
   dl.innerHTML=seriesList().filter(g=>g.pl===pl.value).map(g=>`<option value="${g.se}">${esc(g.rep)}</option>`).join('')}
 document.addEventListener('change',e=>{if(e.target.id==='n-pl')fillSeries()});
