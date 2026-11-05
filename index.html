@@ -309,6 +309,9 @@ const PAY_METHODS=['現金','匯款','支票','LINE Pay','刷卡','其他'];
 const STOCK_AT={PO:2,SO:3};
 const stepN=d=>flowOf(d)?(d.steps||[]).length:0;
 const flowDone=d=>!flowOf(d)||stepN(d)>=flowOf(d).length;
+// 清單的進行中／已完成：外展單看有沒有登記歸還，其他看流程。
+const docDone=d=>d.kind==='EX'?!!d.returned:flowDone(d);
+const hasStage=kind=>!!FLOW[kind]||kind==='EX';
 const counts=d=>!STOCK_AT[d.kind]||stepN(d)>=STOCK_AT[d.kind];
 function migrate(){S.docs.forEach(d=>{if(!FLOW[d.kind]||d.steps)return;const F=FLOW[d.kind];
   d.steps=F.map(()=>({at:d.date,by:''}));if(d.kind==='SO'&&(d.paid||0)<amount(d))d.steps.pop()})}
@@ -610,8 +613,8 @@ function linesBlock(kind,type,dir,title){
 function kindHTML(kind){
   const k=KINDS[kind];
   const parties=[...new Set([...(kind==='SO'?S.customers.map(c=>c.name):kind==='PO'?S.vendors.map(v=>v.name):[]),...S.docs.filter(d=>d.kind===kind).map(d=>d.party)])];
-  const all=S.docs.filter(d=>d.kind===kind),lf=listFilter[kind]||'open';
-  const docs=all.filter(d=>lf==='all'||(lf==='open'?!flowDone(d):flowDone(d))).sort((a,b)=>b.no.localeCompare(a.no));
+  const all=S.docs.filter(d=>d.kind===kind),lf=hasStage(kind)?listFilter[kind]||'open':'all';
+  const docs=all.filter(d=>lf==='all'||(lf==='open'?!docDone(d):docDone(d))).sort((a,b)=>b.no.localeCompare(a.no));
   const head=`<tr><th>單號</th>${FLOW[kind]?'<th>流程進度</th>':''}${kind==='SO'?'<th>收款</th>':kind==='PO'?'<th>付款</th>':''}<th>日期</th><th>${kind==='SO'?'客戶／調撥地點':k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>lname(l)+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'||kind==='PO'?payState(d):null;
@@ -638,7 +641,7 @@ function kindHTML(kind){
     <p class="err" id="f-err"></p>
     <div class="row"><button type="submit" class="btn primary">存檔並查看 A4 單據</button><span class="hint">存檔後庫存總表會馬上更新</span></div>
   </form>
-  <section class="panel">${FLOW[kind]?`<div class="row between"><div class="seg" id="lf">${[['open','進行中'],['done','已完成'],['all','全部']].map(([k2,t])=>`<button type="button" data-f="${k2}" aria-pressed="${lf===k2}">${t}（${all.filter(d=>k2==='all'||(k2==='open'?!flowDone(d):flowDone(d))).length}）</button>`).join('')}</div><span class="hint">流程：${FLOW[kind].map(f=>f.t).join(' → ')}</span></div>`:''}<input id="dq" class="rowfilter" data-target="#docBody" placeholder="搜尋單號、${k.party}、品名" style="max-width:300px"><div class="tablebox">${docs.length?`<table><thead>${head}</thead><tbody id="docBody">${rows}</tbody></table>`:'<p class="empty">還沒有單據，按右上角新增第一張。</p>'}</div><p class="hint">點任一張單可以看 A4 版面${kind==='EX'?'、登記歸還':''}${kind==='SO'?'、登記收款':''}。</p></section>`;
+  <section class="panel">${hasStage(kind)?`<div class="row between"><div class="seg" id="lf">${[['open',kind==='EX'?'帶出中':'進行中'],['done',kind==='EX'?'已歸還':'已完成'],['all','全部']].map(([k2,t])=>`<button type="button" data-f="${k2}" aria-pressed="${lf===k2}">${t}（${all.filter(d=>k2==='all'||(k2==='open'?!docDone(d):docDone(d))).length}）</button>`).join('')}</div><span class="hint">流程：${kind==='EX'?'帶出 → 活動結束登記歸還':FLOW[kind].map(f=>f.t).join(' → ')}</span></div>`:''}<input id="dq" class="rowfilter" data-target="#docBody" placeholder="搜尋單號、${k.party}、品名" style="max-width:300px"><div class="tablebox">${docs.length?`<table><thead>${head}</thead><tbody id="docBody">${rows}</tbody></table>`:'<p class="empty">還沒有單據，按右上角新增第一張。</p>'}</div><p class="hint">點任一張單可以看 A4 版面${kind==='EX'?'、登記歸還':''}${kind==='SO'?'、登記收款':''}。</p></section>`;
 }
 document.addEventListener('click',e=>{
   if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;exDaily=false;render();return}
@@ -827,9 +830,9 @@ const SHIP_METHODS=['親送','自取','回頭車','蝦皮店到店','7-11 交貨
 const TAKER={SO:'接單人員',PO:'開單人員'};
 document.addEventListener('change',e=>{if(!e.target.classList.contains('eqo'))return;const d=curDoc();if(!d||!d.equip)return;const q=d.equip[+e.target.dataset.i];if(!q)return;
   if(e.target.checked)q.out=true;else delete q.out;save();openDoc(d.no)});
-function exInfoHTML(d){const ev=d.ev||{};if(!ev.link&&!ev.note&&!(d.equip||[]).length)return '';
+function exInfoHTML(d){const ev=d.ev||{};if(!ev.link&&!ev.note)return '';
   const safe=/^https?:\/\//i.test(ev.link||'');
-  return `${ev.link||ev.note?`<div class="pinfo" style="display:flex;flex-direction:column;gap:6px">`:''}${ev.link?`<div><b>活動連結：</b>${safe?`<a href="${esc(ev.link)}" target="_blank" rel="noopener">${esc(ev.link)}</a>`:esc(ev.link)}</div>`:''}${ev.note?`<div style="white-space:pre-wrap"><b>說明：</b>${esc(ev.note)}</div>`:''}${ev.link||ev.note?'</div>':''}${(d.equip||[]).length?`<p class="sub">帶出設備清單（出發前逐項勾「已帶出」，${d.equip.filter(q=>q.out).length}／${d.equip.length}）</p><div class="eqlist">${d.equip.map((q,i)=>`<label><input type="checkbox" class="eqo" data-i="${i}" ${q.out?'checked':''}>${esc(eqLabel(q))}${q.note?'（'+esc(q.note)+'）':''}</label>`).join('')}</div>`:''}`}
+  return `${ev.link||ev.note?`<div class="pinfo" style="display:flex;flex-direction:column;gap:6px">`:''}${ev.link?`<div><b>活動連結：</b>${safe?`<a href="${esc(ev.link)}" target="_blank" rel="noopener">${esc(ev.link)}</a>`:esc(ev.link)}</div>`:''}${ev.note?`<div style="white-space:pre-wrap"><b>說明：</b>${esc(ev.note)}</div>`:''}${ev.link||ev.note?'</div>':''}`}
 function exPaperExtra(d){const ev=d.ev||{},eq=d.equip||[];
   return `${eq.length?`<table><thead><tr><th>設備</th><th>數量／備註</th><th style="width:5em">帶出</th><th style="width:5em">帶回</th></tr></thead><tbody>${eq.map(q=>`<tr><td>${q.g?'　└ '+esc(q.n):esc(eqName(q.n))}</td><td>${esc(q.note||'')}</td><td style="text-align:center">${q.out?'☑':'☐'}</td><td style="text-align:center">${q.back?'☑':'☐'}</td></tr>`).join('')}</tbody></table>`:''}`}
 function otherRow(o){return `<div class="line exo"><label class="f">品名（不算庫存）<input class="on" value="${esc(o?o.name:'')}" placeholder="例如：手作香包、多肉植栽"></label><label class="f">數量<input class="oq" type="number" min="0" step="any" inputmode="decimal" value="${o?o.qty:''}"></label><label class="f">售價（可留空）<input class="op" type="number" min="0" step="any" inputmode="decimal" value="${o&&o.price!=null?o.price:''}"></label><button type="button" class="btn small orm" aria-label="移除這一列">✕</button></div>`}
@@ -933,11 +936,11 @@ function autoPay(d,by){const F=flowOf(d);if(!F)return false;const nx=F[stepN(d)]
 function openDoc(no){
   const d=S.docs.find(x=>x.no===no);if(!d)return;const k=KINDS[d.kind];delArm=false;
   let action='';
-  if(d.kind==='EX')action=`${exInfoHTML(d)}<p class="sub">登記歸還、售價與捐款</p><div class="lines">${d.lines.map((l,i)=>`<div class="line"><label class="f">品項<input value="${esc(lname(l))}（帶出 ${l.qty}）" disabled></label><label class="f">歸還數<input id="ret-${i}" class="ret" type="number" min="0" max="${l.qty}" value="${l.ret||0}"></label><label class="f">售價<input id="prc-${i}" class="prc" type="number" min="0" step="any" value="${exPrice(l)}"></label><span></span></div>`).join('')}</div>
+  if(d.kind==='EX')action=`${exInfoHTML(d)}<div class="pinfo" style="display:flex;flex-direction:column;gap:10px"><p class="sub" style="margin:0">活動結束後：登記歸還、售價與捐款</p><p class="hint" style="margin:0">這一區只用來登記帶回來的數量和收入。${can('edit')?'要改帶出的品項、數量、設備或活動資料，請按最上面的「修改這張單」。':''}</p><div class="lines">${d.lines.map((l,i)=>`<div class="line"><label class="f">品項<input value="${esc(lname(l))}（帶出 ${l.qty}）" disabled></label><label class="f">歸還數<input id="ret-${i}" class="ret" type="number" min="0" max="${l.qty}" value="${l.ret||0}"></label><label class="f">售價<input id="prc-${i}" class="prc" type="number" min="0" step="any" value="${exPrice(l)}"></label><span></span></div>`).join('')}</div>
     ${(d.equip||[]).length?`<p class="sub">設備帶回確認</p><div class="eqlist">${d.equip.map((q,i)=>`<label><input type="checkbox" class="eqb" data-i="${i}" ${q.back?'checked':''}>${esc(eqLabel(q))}${q.note?'（'+esc(q.note)+'）':''}</label>`).join('')}</div>`:''}
     <div class="grid-f"><label class="f">捐款金額<input id="donIn" type="number" min="0" step="any" value="${d.donation||0}"></label></div>
     ${d.returned?`<div class="row"><span>銷售金額 <b class="mono">${money(exSales(d))}</b>，捐款 <b class="mono">${money(d.donation)}</b>，合計收入 <b class="mono">${money(exSales(d)+(d.donation||0))}</b></span></div>`:''}
-    <div class="row"><button type="button" class="btn primary" id="saveRet">存檔</button><span class="hint">（帶出 − 歸還）× 售價 = 銷售金額</span></div>`;
+    <div class="row"><button type="button" class="btn primary" id="saveRet">${d.returned?'更新歸還登記':'登記歸還'}</button><span class="hint">（帶出 − 歸還）× 售價 = 銷售金額</span></div></div>`;
   action+=payPanel(d);
   $('#overlay').innerHTML=`<div class="sheetbar" data-no="${d.no}">
     <div class="row between"><b class="mono">${d.no}</b><div class="row">${can('edit')?'<button type="button" class="btn small" id="editDoc">修改這張單</button>':''}${can('del')?'<button type="button" class="btn danger small" id="delDoc">刪除這張單</button>':''}<button type="button" class="btn small" id="closeDoc">關閉</button></div></div>
