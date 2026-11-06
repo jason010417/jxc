@@ -59,6 +59,7 @@ h2{font-family:var(--f-head);font-size:22px;margin:0;text-wrap:balance}
 /* 表格在自己的框裡捲動，表頭固定在框的上方，往下看也知道每欄是什麼 */
 .tablebox thead th{position:sticky;top:0;z-index:1;box-shadow:inset 0 -1px 0 var(--line)}
 @media (max-width:700px){.tablebox{max-height:calc(100vh - 230px)}}
+.tablebox.dragging{cursor:grabbing;user-select:none}
 @media print{.tablebox{max-height:none;overflow:visible}.tablebox thead th{position:static}}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -1106,6 +1107,17 @@ document.addEventListener('change',e=>{
   const map={'h-name':'name','h-from':'from','h-to':'to','h-item':'item','h-q':'q'};
   if(map[e.target.id]){hist[map[e.target.id]]=e.target.value;renderHist()}
 });
+
+// 滑鼠左鍵按住表格可以拖著上下左右移動；拖過之後放開不會觸發點擊（不會誤開單據）。
+(()=>{let drag=null,moved=false;
+  document.addEventListener('mousedown',e=>{if(e.button!==0)return;const box=e.target.closest('.tablebox');if(!box||e.target.closest('input,select,textarea,button,a,label,summary'))return;
+    if(box.scrollWidth<=box.clientWidth&&box.scrollHeight<=box.clientHeight)return;
+    drag={box,x:e.clientX,y:e.clientY,l:box.scrollLeft,t:box.scrollTop};moved=false});
+  document.addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+    if(!moved&&Math.abs(dx)+Math.abs(dy)<5)return;if(!moved){moved=true;drag.box.classList.add('dragging')}
+    drag.box.scrollLeft=drag.l-dx;drag.box.scrollTop=drag.t-dy;e.preventDefault()});
+  document.addEventListener('mouseup',()=>{if(!drag)return;drag.box.classList.remove('dragging');drag=null;if(moved)setTimeout(()=>moved=false,0)});
+  document.addEventListener('click',e=>{if(moved&&e.target.closest('.tablebox')){e.stopPropagation();e.preventDefault();moved=false}},true)})();
 
 /* ---------- 品項清單 ---------- */
 const TYPES=['成品','半成品','包材','標籤','客製'];
