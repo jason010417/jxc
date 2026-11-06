@@ -108,7 +108,10 @@ button.link{border:0;background:none;color:var(--accent);font:inherit;cursor:poi
 label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);min-width:0}
 input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0;width:100%}
 .grid-f{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
-.lines{display:flex;flex-direction:column;gap:8px}
+.lines{display:flex;flex-direction:column;gap:8px;counter-reset:ln}
+#exOther{counter-reset:ln}
+.lcap::before{counter-increment:ln;content:counter(ln) '. ';color:var(--accent);font-weight:600;font-size:14px}
+.exn{color:var(--accent);font-weight:600;width:2.5em}
 .line{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end}
 .line.noprice{grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) auto}
 @media (max-width:520px){.line,.line.noprice{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.line label.f:first-child{grid-column:1/-1}}
@@ -606,7 +609,7 @@ function itemOptions(type,sel){
 function lineHTML(kind,type,dir){
   const k=KINDS[kind],id=++lineSeq;
   return `<div class="line ${k.priced?'':'noprice'}" data-dir="${dir||''}">
-    <label class="f">品項${picker('li',type)}</label>
+    <label class="f"><span class="lcap">品項</span>${picker('li',type)}</label>
     <label class="f">數量<input id="lq-${id}" class="lq" type="number" min="0" step="any" inputmode="decimal"></label>
     ${k.priced?`<label class="f">單價<input id="lp-${id}" class="lp" type="number" min="0" inputmode="decimal"></label>`:''}
     <button type="button" class="btn small rm" aria-label="移除這一列">✕</button></div>`;
@@ -840,7 +843,7 @@ function exInfoHTML(d){const ev=d.ev||{};if(!ev.link&&!ev.note)return '';
   return `${ev.link||ev.note?`<div class="pinfo" style="display:flex;flex-direction:column;gap:6px">`:''}${ev.link?`<div><b>活動連結：</b>${safe?`<a href="${esc(ev.link)}" target="_blank" rel="noopener">${esc(ev.link)}</a>`:esc(ev.link)}</div>`:''}${ev.note?`<div style="white-space:pre-wrap"><b>說明：</b>${esc(ev.note)}</div>`:''}${ev.link||ev.note?'</div>':''}`}
 function exPaperExtra(d){const ev=d.ev||{},eq=d.equip||[];
   return `${eq.length?`<table><thead><tr><th>設備</th><th>數量／備註</th><th style="width:5em">帶出</th><th style="width:5em">帶回</th></tr></thead><tbody>${eq.map(q=>`<tr><td>${q.g?'　└ '+esc(q.n):esc(eqName(q.n))}</td><td>${esc(q.note||'')}</td><td style="text-align:center">${q.out?'☑':'☐'}</td><td style="text-align:center">${q.back?'☑':'☐'}</td></tr>`).join('')}</tbody></table>`:''}`}
-function otherRow(o){return `<div class="line exo"><label class="f">品名（不算庫存）<input class="on" value="${esc(o?o.name:'')}" placeholder="例如：手作香包、多肉植栽"></label><label class="f">數量<input class="oq" type="number" min="0" step="any" inputmode="decimal" value="${o?o.qty:''}"></label><label class="f">售價（可留空）<input class="op" type="number" min="0" step="any" inputmode="decimal" value="${o&&o.price!=null?o.price:''}"></label><button type="button" class="btn small orm" aria-label="移除這一列">✕</button></div>`}
+function otherRow(o){return `<div class="line exo"><label class="f"><span class="lcap">品名（不算庫存）</span><input class="on" value="${esc(o?o.name:'')}" placeholder="例如：手作香包、多肉植栽"></label><label class="f">數量<input class="oq" type="number" min="0" step="any" inputmode="decimal" value="${o?o.qty:''}"></label><label class="f">售價（可留空）<input class="op" type="number" min="0" step="any" inputmode="decimal" value="${o&&o.price!=null?o.price:''}"></label><button type="button" class="btn small orm" aria-label="移除這一列">✕</button></div>`}
 let exDaily=false;
 function dailyItem(){const L=S.items.filter(i=>!i.off&&i.type==='成品');return L.find(i=>i.code==='103008-003')||L.find(i=>/爆米花/.test(i.name)&&/100\s*g/i.test(i.name+i.unit))}
 function exFormHTML(){const st=stock(),di=dailyItem();
@@ -851,12 +854,15 @@ function exFormHTML(){const st=stock(),di=dailyItem();
     <label class="f">文字說明<textarea id="f-evnote" rows="3" placeholder="時間、地點、聯絡人、注意事項⋯"></textarea></label>
     <p class="sub">設備確認（勾選這次要帶的）</p>
     ${eqFormHTML()}
-    <div class="row between"><p class="sub">帶出的成品（填數量，沒帶的留空，不會印出來）</p><input class="rowfilter exnd" data-target="#exBody" placeholder="搜尋成品" style="max-width:220px"></div>
-    <div class="tablebox exbox"><table><thead><tr><th>料號</th><th>品名</th><th class="n">現有庫存</th><th style="width:110px">帶出數量</th></tr></thead><tbody id="exBody">${S.items.filter(i=>i.type==='成品'&&!i.off).map(i=>`<tr ${di&&i.id===di.id?'data-d="1"':'class="exnd"'}><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td class="n">${fmt(st[i.id]?st[i.id].cur:0)}</td><td><input class="exq" data-item="${i.id}" type="number" min="0" step="any" inputmode="decimal"></td></tr>`).join('')}</tbody></table></div>
+    <div class="row between"><p class="sub">帶出的成品（填數量，沒帶的留空，不會印出來）<span id="exCount" class="hint" style="margin-left:8px"></span></p><input class="rowfilter exnd" data-target="#exBody" placeholder="搜尋成品" style="max-width:220px"></div>
+    <div class="tablebox exbox"><table><thead><tr><th class="exn">#</th><th>料號</th><th>品名</th><th class="n">現有庫存</th><th style="width:110px">帶出數量</th></tr></thead><tbody id="exBody">${S.items.filter(i=>i.type==='成品'&&!i.off).map(i=>`<tr ${di&&i.id===di.id?'data-d="1"':'class="exnd"'}><td class="exn"></td><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}</td><td class="n">${fmt(st[i.id]?st[i.id].cur:0)}</td><td><input class="exq" data-item="${i.id}" type="number" min="0" step="any" inputmode="decimal"></td></tr>`).join('')}</tbody></table></div>
     <p class="sub exnd">其它（工藝品、植栽等，自己輸入，不算庫存）</p>
     <div id="exOther" class="exnd" style="display:flex;flex-direction:column;gap:8px">${otherRow()}</div>
     <div class="exnd"><button type="button" class="btn small" id="addOther">＋ 加一列</button></div></div>`}
-function setExDaily(on,fill){exDaily=on;const w=$('#exWrap');if(!w)return;w.classList.toggle('daily',on);
+// 外展表單：有填帶出數量的成品依序編號，方便核對有沒有漏
+function exNum(){let n=0;document.querySelectorAll('#exBody tr').forEach(r=>{const q=r.querySelector('.exq'),c=r.querySelector('.exn');if(c)c.textContent=q&&+q.value>0&&(!exDaily||r.dataset.d)?++n:''});const h=$('#exCount');if(h)h.textContent=n?`已選 ${n} 項`:''}
+document.addEventListener('input',e=>{if(e.target.classList.contains('exq'))exNum()});
+function setExDaily(on,fill){exDaily=on;const w=$('#exWrap');if(!w)return;setTimeout(exNum);w.classList.toggle('daily',on);
   document.querySelectorAll('#exMode button').forEach(b=>b.setAttribute('aria-pressed',String((b.dataset.m==='1')===on)));
   if(on&&fill){const cs=[...document.querySelectorAll('.eq[data-d] .eqc')];if(!cs.some(c=>c.checked))cs.forEach(c=>c.checked=true);
     const p=$('#f-party');if(p&&!p.value.trim())p.value='平日外展'}}
@@ -921,7 +927,7 @@ function fillEdit(){
   if($('#f-taker'))$('#f-taker').value=d.taker||'';
   if(d.kind==='EX'){setExDaily(!!d.daily);$('#f-evlink').value=(d.ev&&d.ev.link)||'';$('#f-evnote').value=(d.ev&&d.ev.note)||'';
     (d.equip||[]).forEach(q=>{const i=eqIdx(q);if(i<0)return;$(`.eqc[data-i="${i}"]`).checked=true;$(`.eqn[data-i="${i}"]`).value=q.note||''});eqSync();
-    d.lines.forEach(l=>{if(l.other)return;const x=$(`.exq[data-item="${l.item}"]`);if(x)x.value=l.qty});
+    d.lines.forEach(l=>{if(l.other)return;const x=$(`.exq[data-item="${l.item}"]`);if(x)x.value=l.qty});exNum();
     const os=d.lines.filter(l=>l.other);if(os.length)$('#exOther').innerHTML=os.map(otherRow).join('')}
   if($('#f-arr1')){$('#f-arr1').value=d.arr||'';$('#f-arr2').value=d.arr2||''}
   if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom}
@@ -941,7 +947,7 @@ function autoPay(d,by){const F=flowOf(d);if(!F)return false;const nx=F[stepN(d)]
 function openDoc(no){
   const d=S.docs.find(x=>x.no===no);if(!d)return;const k=KINDS[d.kind];delArm=false;
   let action='';
-  if(d.kind==='EX')action=`${exInfoHTML(d)}<div class="pinfo" style="display:flex;flex-direction:column;gap:10px"><p class="sub" style="margin:0">活動結束後：登記歸還、售價與捐款</p><p class="hint" style="margin:0">這一區只用來登記帶回來的數量和收入。${can('edit')?'要改帶出的品項、數量、設備或活動資料，請按最上面的「修改這張單」。':''}</p><div class="lines">${d.lines.map((l,i)=>`<div class="line"><label class="f">品項<input value="${esc(lname(l))}（帶出 ${l.qty}）" disabled></label><label class="f">歸還數<input id="ret-${i}" class="ret" type="number" min="0" max="${l.qty}" value="${l.ret||0}"></label><label class="f">售價<input id="prc-${i}" class="prc" type="number" min="0" step="any" value="${exPrice(l)}"></label><span></span></div>`).join('')}</div>
+  if(d.kind==='EX')action=`${exInfoHTML(d)}<div class="pinfo" style="display:flex;flex-direction:column;gap:10px"><p class="sub" style="margin:0">活動結束後：登記歸還、售價與捐款</p><p class="hint" style="margin:0">這一區只用來登記帶回來的數量和收入。${can('edit')?'要改帶出的品項、數量、設備或活動資料，請按最上面的「修改這張單」。':''}</p><div class="lines">${d.lines.map((l,i)=>`<div class="line"><label class="f"><span class="lcap">品項</span><input value="${esc(lname(l))}（帶出 ${l.qty}）" disabled></label><label class="f">歸還數<input id="ret-${i}" class="ret" type="number" min="0" max="${l.qty}" value="${l.ret||0}"></label><label class="f">售價<input id="prc-${i}" class="prc" type="number" min="0" step="any" value="${exPrice(l)}"></label><span></span></div>`).join('')}</div>
     ${(d.equip||[]).length?`<p class="sub">設備帶回確認</p><div class="eqlist">${d.equip.map((q,i)=>`<label><input type="checkbox" class="eqb" data-i="${i}" ${q.back?'checked':''}>${esc(eqLabel(q))}${q.note?'（'+esc(q.note)+'）':''}</label>`).join('')}</div>`:''}
     <div class="grid-f"><label class="f">捐款金額<input id="donIn" type="number" min="0" step="any" value="${d.donation||0}"></label></div>
     ${d.returned?`<div class="row"><span>銷售金額 <b class="mono">${money(exSales(d))}</b>，捐款 <b class="mono">${money(d.donation)}</b>，合計收入 <b class="mono">${money(exSales(d)+(d.donation||0))}</b></span></div>`:''}
@@ -993,7 +999,7 @@ function flowPanel(d){
       <label class="f">經手人（必填）<input id="st-by" list="st-bys" placeholder="誰處理的" required><datalist id="st-bys">${handlers.map(h=>`<option value="${esc(h)}">`).join('')}</datalist></label>
       ${nx.k==='ship'?`<label class="f">交貨方式<select id="st-method">${SHIP_METHODS.map(m=>`<option ${d.ship&&d.ship.method===m?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="f">查貨號碼（回頭車打車牌）<input id="st-track" placeholder="回頭車請填車牌號碼" value="${esc(d.ship&&d.ship.track)}"></label>`:''}
-      ${nx.k==='recv'?d.lines.map((l,i)=>`<label class="f">${esc(item(l.item).name)} 驗收數量（訂 ${fmt(l.qty)}）<input class="acc" data-i="${i}" type="number" min="0" step="any" inputmode="decimal" value="${l.acc??l.qty}"></label>`).join(''):''}
+      ${nx.k==='recv'?d.lines.map((l,i)=>`<label class="f">${i+1}. ${esc(item(l.item).name)} 驗收數量（訂 ${fmt(l.qty)}）<input class="acc" data-i="${i}" type="number" min="0" step="any" inputmode="decimal" value="${l.acc??l.qty}"></label>`).join(''):''}
       ${nx.k==='pay'&&d.kind==='PO'?`<label class="f">付款方式<select id="st-pm">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
       ${nx.k==='pay'&&d.kind==='SO'?`<label class="f">收款方式<select id="st-pm">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
       ${nx.k==='pay'&&(d.kind==='SO'&&!d.xfer||d.kind==='PO')&&paidOf(d)<amount(d)?feeInputs('st',d):''}
