@@ -1034,7 +1034,7 @@ function receiptHTML(d){
   return `<div class="rcpt"><table>
     <tr><td class="nb"></td><td class="nb rt" colspan="4" rowspan="2">免用統一發票收據</td><td class="nb" style="text-align:right">統一編號:</td><td class="nb" colspan="2" style="text-align:left">${esc(c.taxId||'')}</td></tr>
     <tr><td class="nb"></td><td class="nb" style="text-align:right">日期:</td><td class="nb" colspan="2" style="text-align:left">${date.replace(/-/g,'/')}</td></tr>
-    <tr><td class="nb"></td><td class="nb rc" colspan="4" style="border-bottom:1px solid var(--paper-ink)">${esc(c.title||d.party)}</td><td class="nb rc" colspan="3" style="text-align:left">台照</td></tr>
+    <tr><td class="nb"></td><td class="nb rc" colspan="4" style="border-bottom:1px solid var(--paper-ink)">${esc((c.title||"").trim())}</td><td class="nb rc" colspan="3" style="text-align:left">台照</td></tr>
     <tr><td colspan="2">品名</td><td>數量</td><td>單價</td><td>總價</td><td colspan="3">備註</td></tr>
     ${ls.map((l,i)=>`<tr><td style="width:2.5em">${i+1}</td><td style="text-align:left;min-width:12em;white-space:normal">${l?esc(l.fee||item(l.item).name):''}</td><td>${l?fmt(l.qty):''}</td><td class="n">${l?fmt(l.price):''}</td><td class="n">${l?fmt(l.qty*l.price):''}</td>${i===0?'<td colspan="3" class="stamp">收據專用章</td>':i===1?`<td colspan="3" rowspan="${ls.length-1}" class="nb sbox" style="border:1px solid var(--paper-ink)">${STAMPS.receipt?`<img src="${STAMPS.receipt}" alt="收據章">`:''}</td>`:''}</tr>`).join('')}
     <tr><td colspan="4">合計</td><td class="n">${fmt(tot)}</td><td colspan="2" rowspan="2" class="cap">銀貨兩訖</td><td rowspan="2" class="seal">${STAMPS.owner?`<img src="${STAMPS.owner}" alt="負責人章">`:''}</td></tr>
