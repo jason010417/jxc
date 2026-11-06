@@ -638,7 +638,7 @@ function kindHTML(kind){
       `:''}
       ${kind==='SO'||kind==='PO'?`<label class="f">${TAKER[kind]}（必填）<input id="f-taker" list="f-takers" placeholder="選擇或輸入名字"><datalist id="f-takers">${[...new Set(S.docs.flatMap(x=>[x.taker,...(x.steps||[]).map(s=>s.by)]).filter(Boolean))].map(n=>`<option value="${esc(n)}">`).join('')}</datalist></label>`:''}
       <label class="f"><span id="f-partyLbl">${k.party}</span><input id="f-party" list="f-parties" placeholder="${kind==='SO'?'打字會從顧客資料提示':kind==='PO'?'打字會從廠商資料提示':'打字會自動提示以前填過的'}"><datalist id="f-parties">${parties.map(p=>`<option value="${esc(p)}">`).join('')}</datalist></label>
-      ${kind==='SO'?'<label class="f">到貨期間（開始）<input id="f-arr1" type="date"></label><label class="f">到貨期間（結束，可留空）<input id="f-arr2" type="date"></label>':''}
+      ${kind==='SO'?'<label class="f">收據日期（預設同開單日期）<input id="f-rdate" type="date" value="${today()}"></label><label class="f">到貨期間（開始）<input id="f-arr1" type="date"></label><label class="f">到貨期間（結束，可留空）<input id="f-arr2" type="date"></label>':''}
       ${editing?'<label class="f">修改人（必填）<input id="f-editor" list="st-bys2"></label><label class="f">修改原因<input id="f-reason" placeholder="例如：客戶改數量"></label>':''}
     </div>
     ${kind==='SO'||kind==='PO'?'<div id="partyInfo" class="pinfo" hidden></div>':''}
@@ -714,6 +714,7 @@ document.addEventListener('submit',e=>{
     const ch=[];if(d.date!==date)ch.push(`日期：${d.date} → ${date}`);if(d.party!==(party||'—'))ch.push(`${k.party}：${d.party} → ${party||'—'}`);
     if(sum(d.lines)!==sum(lines))ch.push(`品項：${sum(d.lines)} → ${sum(lines)}`);
     const cu=kind==='SO'?customVal():null,av=kind==='SO'?arrVal():null;
+    const rd=kind==='SO'?rdateVal(date):null;if(rd!=null&&(d.rdate||'')!==rd)ch.push(`收據日期：${d.rdate||d.date} → ${rd||date}`);
     const ty=kind==='SO'?$('#f-type').value==='xfer':null,tk=TAKER[kind]?$('#f-taker').value.trim():null;
     if(ty!=null&&!!d.xfer!==ty)ch.push(`類型：${d.xfer?'調撥':'銷貨'} → ${ty?'調撥':'銷貨'}`);
     if(exv){const a=d.ev||{};if((a.link||'')!==exv.ev.link||(a.note||'')!==exv.ev.note)ch.push(`活動細節：${[a.link,a.note].filter(Boolean).join(' ')||'—'} → ${[exv.ev.link,exv.ev.note].filter(Boolean).join(' ')||'—'}`);
@@ -728,11 +729,12 @@ document.addEventListener('submit',e=>{
     if(ty!=null){if(ty)d.xfer=true;else delete d.xfer}
     if(exv){exv.equip.forEach(q=>{const o=(d.equip||[]).find(x=>eqLabel(x)===eqLabel(q));if(o&&o.back)q.back=true;if(o&&o.out)q.out=true});d.ev=exv.ev;d.equip=exv.equip;if(exv.daily)d.daily=true;else delete d.daily}
     if(tk!=null){if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk}
+    if(rd!=null){if(rd)d.rdate=rd;else delete d.rdate}
     if(av){if(av.arr)d.arr=av.arr;else delete d.arr;if(av.arr2)d.arr2=av.arr2;else delete d.arr2}
     if(cu){if(cu.custom){d.custom=true;d.spec=cu.spec;if(!d.pk)d.pk=newKey('p')}else{delete d.custom;delete d.spec}}
     save();const no=d.no;editing=null;formOpen=false;exDaily=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
   const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};
-  if(kind==='SO'){doc.paid=0;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2;
+  if(kind==='SO'){doc.paid=0;const rd=rdateVal(date);if(rd)doc.rdate=rd;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2;
     if($('#f-type').value==='xfer')doc.xfer=true}
   if(TAKER[kind]){const tk=$('#f-taker').value.trim();if(tk)doc.taker=tk}
   const cu=kind==='SO'?customVal():null;
@@ -888,6 +890,10 @@ document.addEventListener('click',e=>{
   const r=e.target.closest('.orm');if(r){const box=$('#exOther');if(box.children.length>1)r.closest('.exo').remove();else r.closest('.exo').querySelectorAll('input').forEach(i=>i.value='')}
 });
 document.addEventListener('input',e=>{if(e.target.classList.contains('eqn')&&e.target.value){const c=$(`.eqc[data-i="${e.target.dataset.i}"]`);if(c){c.checked=true;eqSync()}}});
+// 收據日期：預設跟著開單日期走，有改過才另外存 d.rdate
+function rdateVal(date){const x=$('#f-rdate');if(!x)return null;return x.value&&x.value!==date?x.value:''}
+document.addEventListener('input',e=>{if(e.target.id==='f-rdate')e.target.dataset.touched='1'});
+document.addEventListener('change',e=>{if(e.target.id==='f-date'){const r=$('#f-rdate');if(r&&!r.dataset.touched)r.value=e.target.value}});
 function arrVal(){const a=$('#f-arr1').value,b=$('#f-arr2').value;return a||b?{arr:a||b,arr2:a&&b&&b!==a?b:''}:{arr:'',arr2:''}}
 function arrText(d){const f=x=>x?x.replace(/-/g,'/'):'';return d.arr?f(d.arr)+(d.arr2?' ～ '+f(d.arr2):''):''}
 function customVal(){const c=$('#f-custom');return c?{custom:c.checked,spec:$('#f-spec').value.trim()}:null}
@@ -929,6 +935,7 @@ function fillEdit(){
     (d.equip||[]).forEach(q=>{const i=eqIdx(q);if(i<0)return;$(`.eqc[data-i="${i}"]`).checked=true;$(`.eqn[data-i="${i}"]`).value=q.note||''});eqSync();
     d.lines.forEach(l=>{if(l.other)return;const x=$(`.exq[data-item="${l.item}"]`);if(x)x.value=l.qty});exNum();
     const os=d.lines.filter(l=>l.other);if(os.length)$('#exOther').innerHTML=os.map(otherRow).join('')}
+  if($('#f-rdate')){$('#f-rdate').value=d.rdate||d.date;if(d.rdate)$('#f-rdate').dataset.touched='1'}
   if($('#f-arr1')){$('#f-arr1').value=d.arr||'';$('#f-arr2').value=d.arr2||''}
   if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom}
   const names=[...new Set(S.docs.flatMap(x=>(x.log||[]).map(g=>g.by).concat((x.steps||[]).map(s=>s.by))).filter(Boolean))];
@@ -1029,7 +1036,7 @@ function capNum(n){n=Math.round(n);if(n===0)return '零';const D='零壹貳參�
     out+=t.replace(/零$/,'')+B[g]}
   return out.replace(/零$/,'')}
 function receiptHTML(d){
-  const c=S.customers.find(x=>x.name===d.party)||{};const st=(d.steps||[])[2];const date=st?st.at:d.date;
+  const c=S.customers.find(x=>x.name===d.party)||{};const date=d.rdate||d.date;
   const ls=d.lines.slice();if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<8)ls.push(null);const tot=amount(d);
   return `<div class="rcpt"><table>
     <tr><td class="nb"></td><td class="nb rt" colspan="4" rowspan="2">免用統一發票收據</td><td class="nb" style="text-align:right">統一編號:</td><td class="nb" colspan="2" style="text-align:left">${esc(c.taxId||'')}</td></tr>
