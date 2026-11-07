@@ -419,7 +419,7 @@ function onData(){
     if(!metaData){$('#main').innerHTML='<p class="empty">雲端還沒有資料。</p>';
       ready=true;S.bom={};S.perm=null;S.svcInit=true;S.histImported=true;afterLoad();return}
     ready=true;
-    if(!S.bom)S.bom={};
+    if(!S.bom)S.bom={};if(!S.prepay)S.prepay=[];
     afterLoad();syncTag();return;
   }
   scheduleRender();
@@ -791,6 +791,39 @@ let arSide='AR';const arOpen=new Set(),arF={from:'',to:'',all:false};
 document.addEventListener('change',e=>{if(page!=='ar')return;if(e.target.id==='arFrom')arF.from=e.target.value;else if(e.target.id==='arTo')arF.to=e.target.value;else if(e.target.id==='arAll')arF.all=e.target.checked;else return;render()});
 function arRef(d){const st=d.steps||[];return (d.kind==='PO'?st[1]:st[2])?.at||d.date}
 function arAge(d){return Math.max(0,Math.floor((Date.parse(today())-Date.parse(arRef(d)))/864e5))}
+// 廠商預付款：先付一筆錢、之後分批取貨。預付時在這裡登記，每次取貨各開一張採購單，付款方式選「預付款扣抵」就從餘額扣。
+const PREPAY='預付款扣抵';
+function prepayUsed(v){return S.docs.filter(d=>d.kind==='PO'&&d.party===v).reduce((t,d)=>t+(d.pays||[]).filter(x=>x.method===PREPAY).reduce((a,x)=>a+(+x.amt||0),0),0)}
+function prepayBal(v){return (S.prepay||[]).filter(x=>x.vendor===v).reduce((t,x)=>t+(+x.amt||0),0)-prepayUsed(v)}
+function payMethods(d){return d.kind==='PO'&&prepayBal(d.party)>0?[PREPAY,...PAY_METHODS]:PAY_METHODS}
+function prepayHTML(){const L=S.prepay||[],vs=[...new Set(L.map(x=>x.vendor))];
+  const vrow=vs.map(v=>{const t=L.filter(x=>x.vendor===v).reduce((a,x)=>a+(+x.amt||0),0),u=prepayUsed(v);return `<tr><td>${esc(v)}</td><td class="n">${money(t)}</td><td class="n">${money(u)}</td><td class="n"><b>${money(t-u)}</b></td></tr>`}).join('');
+  const use=S.docs.filter(d=>d.kind==='PO'&&(d.pays||[]).some(x=>x.method===PREPAY)).flatMap(d=>d.pays.filter(x=>x.method===PREPAY).map(x=>({at:x.at,v:d.party,no:d.no,amt:x.amt,by:x.by,sum:docSum(d)})));
+  const hist=[...L.map(x=>({at:x.at,v:x.vendor,t:'預付',amt:x.amt,by:x.by,note:[x.method,x.note].filter(Boolean).join('，'),id:x.id})),...use.map(x=>({at:x.at,v:x.v,t:'取貨扣抵',amt:-x.amt,by:x.by,note:x.no+' '+x.sum,no:x.no}))].sort((a,b)=>b.at.localeCompare(a.at));
+  const vendors=[...new Set([...S.vendors.map(v=>v.name),...S.docs.filter(d=>d.kind==='PO').map(d=>d.party)])];
+  return `<section class="panel" id="prepayBox"><p class="sub" style="margin:0">廠商預付款（先付錢、分批取貨）</p>
+    <p class="hint">付錢時在這裡登記一筆。之後每次取貨各開一張採購單，填當次的口味和數量，驗收後付款方式選「${PREPAY}」，就會從這家廠商的預付款扣掉。</p>
+    <form id="ppForm" class="grid-f" style="align-items:end">
+      <label class="f">廠商<input id="pp-v" list="pp-vs" placeholder="選擇或輸入廠商"><datalist id="pp-vs">${vendors.map(v=>`<option value="${esc(v)}">`).join('')}</datalist></label>
+      <label class="f">付款日期<input id="pp-at" type="date" value="${today()}"></label>
+      <label class="f">預付金額<input id="pp-amt" type="number" min="0" step="any" inputmode="decimal"></label>
+      <label class="f">付款方式<select id="pp-m">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>
+      <label class="f">經手人（必填）<input id="pp-by" list="st-bys"></label>
+      <label class="f">備註<input id="pp-note" placeholder="例如：爆米花 2000 包，口味取貨時再說"></label>
+      <div><button type="submit" class="btn primary">登記預付款</button></div>
+    </form>
+    ${vs.length?`<div class="tablebox"><table><thead><tr><th>廠商</th><th class="n">預付合計</th><th class="n">已取貨扣抵</th><th class="n">剩餘預付款</th></tr></thead><tbody>${vrow}</tbody></table></div>
+    <details><summary class="hint" style="cursor:pointer">預付與扣抵明細（${hist.length}）</summary><div class="tablebox"><table><thead><tr><th>日期</th><th>廠商</th><th>項目</th><th class="n">金額</th><th>經手人</th><th>說明</th>${role==='admin'?'<th></th>':''}</tr></thead><tbody>${hist.map(h=>`<tr ${h.no?`class="click" data-doc="${h.no}"`:''}><td>${esc(h.at)}</td><td>${esc(h.v)}</td><td>${h.t}</td><td class="n">${money(h.amt)}</td><td>${esc(h.by||'')}</td><td style="white-space:normal">${esc(h.note||'')}</td>${role==='admin'?`<td>${h.id?`<button type="button" class="btn small danger ppdel" data-id="${h.id}">刪除</button>`:''}</td>`:''}</tr>`).join('')}</tbody></table></div></details>`:'<p class="empty">目前沒有預付款。</p>'}
+  </section>`}
+document.addEventListener('submit',e=>{if(e.target.id!=='ppForm')return;e.preventDefault();
+  const v=$('#pp-v').value.trim(),amt=+$('#pp-amt').value||0,by=$('#pp-by').value.trim();
+  if(!v){toast('請填廠商');return}if(amt<=0){toast('請填預付金額');return}if(!by){toast('請填經手人');$('#pp-by').focus();return}
+  (S.prepay=S.prepay||[]).push({id:'pp'+Date.now(),vendor:v,at:$('#pp-at').value||today(),amt,method:$('#pp-m').value,by,note:$('#pp-note').value.trim()});
+  S.audit.unshift({no:'預付款',action:'修改',at:new Date().toLocaleString('zh-TW',{hour12:false}),by,reason:'登記預付款',changes:[v+' 預付 '+money(amt)]});
+  save();render();toast('已登記 '+v+' 預付款 '+money(amt))});
+document.addEventListener('click',e=>{const b=e.target.closest('.ppdel');if(!b||role!=='admin')return;const x=(S.prepay||[]).find(p=>p.id===b.dataset.id);if(!x)return;
+  if(!confirm(`確定刪除 ${x.vendor} ${x.at} 的預付款 ${money(x.amt)}？`))return;S.prepay=S.prepay.filter(p=>p!==x);
+  S.audit.unshift({no:'預付款',action:'刪除',at:new Date().toLocaleString('zh-TW',{hour12:false}),by:'管理者',reason:'',changes:[x.vendor+' 預付 '+money(x.amt)]});save();render()});
 function arHTML(){
   const R=arSide==='AR',w=R?'收':'付';
   const list=S.docs.filter(d=>R?d.kind==='SO'&&!d.xfer:d.kind==='PO'&&stepN(d)>=2).filter(d=>(!arF.from||arRef(d)>=arF.from)&&(!arF.to||arRef(d)<=arF.to)).map(d=>({d,a:amount(d),p:paidOf(d)})).filter(x=>arF.all||x.a-x.p>0.004);
@@ -807,7 +840,7 @@ function arHTML(){
     <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="arAll" ${arF.all?'checked':''} style="width:auto">也列出已${w}清的單</label></div>
   <div class="tiles"><div class="tile"><span class="k">${arF.from||arF.to?'區間':''}應${w}</span><span class="v">${money(gs.reduce((s,o)=>s+o.a,0))}</span></div><div class="tile"><span class="k">${arF.from||arF.to?'區間':''}已${w}</span><span class="v">${money(gs.reduce((s,o)=>s+o.p,0))}</span></div><div class="tile"><span class="k">未${w}合計</span><span class="v">${money(tot)}</span></div>${(f=>f?`<div class="tile"><span class="k">${R?'平台抽成＋匯費':'廠商扣手續費＋匯費'}</span><span class="v">${money(f)}</span></div>`:'')(list.reduce((t,x)=>t+feeSum(x.d),0))}<div class="tile"><span class="k">${R?'客戶':'廠商'}數</span><span class="v">${gs.length}</span></div><div class="tile ${over?'alert':''}"><span class="k">超過 30 天未${w}</span><span class="v">${money(over)}</span></div>${R?'':`<div class="tile"><span class="k">尚未到貨的採購金額</span><span class="v">${money(waitRecv)}</span></div>`}</div>
   <section class="panel"><input class="rowfilter" data-target="#arBody" placeholder="搜尋${R?'客戶':'廠商'}或單號" style="max-width:280px">
-  <div class="tablebox">${gs.length?`<table><thead><tr><th>${R?'客戶':'廠商'}</th><th class="n">張數</th><th class="n">應${w}</th><th class="n">已${w}</th><th class="n">未${w}</th><th class="n">最久帳齡</th></tr></thead><tbody id="arBody">${rows}</tbody><tfoot><tr><td>合計</td><td class="n">${list.length}</td><td class="n">${money(gs.reduce((s,o)=>s+o.a,0))}</td><td class="n">${money(gs.reduce((s,o)=>s+o.p,0))}</td><td class="n">${money(tot)}</td><td></td></tr></tfoot></table>`:`<p class="empty">目前沒有未${w}的帳款。</p>`}</div></section>`;
+  <div class="tablebox">${gs.length?`<table><thead><tr><th>${R?'客戶':'廠商'}</th><th class="n">張數</th><th class="n">應${w}</th><th class="n">已${w}</th><th class="n">未${w}</th><th class="n">最久帳齡</th></tr></thead><tbody id="arBody">${rows}</tbody><tfoot><tr><td>合計</td><td class="n">${list.length}</td><td class="n">${money(gs.reduce((s,o)=>s+o.a,0))}</td><td class="n">${money(gs.reduce((s,o)=>s+o.p,0))}</td><td class="n">${money(tot)}</td><td></td></tr></tfoot></table>`:`<p class="empty">目前沒有未${w}的帳款。</p>`}</div></section>${R?'':prepayHTML()}`;
 }
 document.addEventListener('click',e=>{
   const b=e.target.closest('#arSeg button');if(b){arSide=b.dataset.s;arOpen.clear();render();return}
@@ -825,8 +858,9 @@ document.addEventListener('change',e=>{if(e.target.id==='f-type'){typeUI();if(e.
 function payPanel(d){
   const po=d.kind==='PO';if(!(d.kind==='SO'&&!d.xfer)&&!po)return '';
   const w=po?'付':'收',a=amount(d),p=paidOf(d),ps=payState(d);
-  return `<div class="row"><span>應${w} <b class="mono">${money(a)}</b>，已${w} <b class="mono">${money(p)}</b>，未${w} <b class="mono">${money(a-p)}</b></span><span class="pill ${ps[1]}">${ps[0]}</span></div>${p>=a?'':`<div class="row"><label class="f" style="flex:1;max-width:220px">${po?'本次實際匯出金額':'本次實際入帳金額'}<input id="payIn" type="number" min="0" inputmode="decimal" value="${a-p}" data-rest="${a-p}"></label>${feeInputs('pay',d)}<label class="f" style="max-width:160px">經手人（必填）<input id="payBy" list="st-bys"></label><label class="f" style="max-width:160px">${w}款方式<select id="payMethod">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label><button type="button" class="btn primary" id="savePay" style="align-self:flex-end">登記${w}款</button></div>`}
+  return `<div class="row"><span>應${w} <b class="mono">${money(a)}</b>，已${w} <b class="mono">${money(p)}</b>，未${w} <b class="mono">${money(a-p)}</b></span><span class="pill ${ps[1]}">${ps[0]}</span></div>${p>=a?'':`<div class="row"><label class="f" style="flex:1;max-width:220px">${po?'本次實際匯出金額':'本次實際入帳金額'}<input id="payIn" type="number" min="0" inputmode="decimal" value="${a-p}" data-rest="${a-p}"></label>${feeInputs('pay',d)}<label class="f" style="max-width:160px">經手人（必填）<input id="payBy" list="st-bys"></label><label class="f" style="max-width:160px">${w}款方式<select id="payMethod">${payMethods(d).map(m=>`<option>${m}</option>`).join('')}</select></label><button type="button" class="btn primary" id="savePay" style="align-self:flex-end">登記${w}款</button></div>`}
   ${d.pays&&d.pays.length?`<div class="hint">${w}款紀錄：${d.pays.map(x=>`${esc(x.at)} ${esc(x.method)} ${po?'實付 ':'入帳 '}${money(x.amt)}${feeText(x)}${x.by?'（'+esc(x.by)+'）':''}`).join('；')}</div>`:''}
+  ${po&&prepayBal(d.party)>0?`<div class="hint">這家廠商還有預付款 <b>${money(prepayBal(d.party))}</b>，付款方式選「${PREPAY}」就會從預付款扣。</div>`:''}
   ${(()=>{const f=feeSum(d);return f?`<div class="hint">${po?`廠商扣手續費＋匯費共 ${money(f)}，實際匯出 ${money(p-f)}`:`平台抽成＋匯費共 ${money(f)}，實際入帳 ${money(p-f)}`}</div>`:''})()}`}
 // 線上通路的抽成與匯費：都從貨款裡直接扣掉，實際入帳／匯出＋抽成＋匯費＝結清的金額。
 function feeInputs(px,d){const po=d.kind==='PO';return `<label class="f" style="max-width:140px">${po?'平台手續費':'平台抽成'}<input id="${px}-fee" class="feein" data-px="${px}" type="number" min="0" step="any" inputmode="decimal" placeholder="0"></label><label class="f" style="max-width:140px">匯費<input id="${px}-wire" class="feein" data-px="${px}" type="number" min="0" step="any" inputmode="decimal" placeholder="0"></label>`}
@@ -1007,7 +1041,7 @@ function flowPanel(d){
       ${nx.k==='ship'?`<label class="f">交貨方式<select id="st-method">${SHIP_METHODS.map(m=>`<option ${d.ship&&d.ship.method===m?'selected':''}>${m}</option>`).join('')}</select></label>
       <label class="f">查貨號碼（回頭車打車牌）<input id="st-track" placeholder="回頭車請填車牌號碼" value="${esc(d.ship&&d.ship.track)}"></label>`:''}
       ${nx.k==='recv'?d.lines.map((l,i)=>`<label class="f">${i+1}. ${esc(item(l.item).name)} 驗收數量（訂 ${fmt(l.qty)}）<input class="acc" data-i="${i}" type="number" min="0" step="any" inputmode="decimal" value="${l.acc??l.qty}"></label>`).join(''):''}
-      ${nx.k==='pay'&&d.kind==='PO'?`<label class="f">付款方式<select id="st-pm">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
+      ${nx.k==='pay'&&d.kind==='PO'?`<label class="f">付款方式<select id="st-pm">${payMethods(d).map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
       ${nx.k==='pay'&&d.kind==='SO'?`<label class="f">收款方式<select id="st-pm">${PAY_METHODS.map(m=>`<option>${m}</option>`).join('')}</select></label>`:''}
       ${nx.k==='pay'&&(d.kind==='SO'&&!d.xfer||d.kind==='PO')&&paidOf(d)<amount(d)?feeInputs('st',d):''}
     </div>
@@ -1071,6 +1105,7 @@ $('#overlay').addEventListener('click',e=>{
     if(nx.k==='ship')d.ship={method:$('#st-method').value,track:$('#st-track').value.trim()};
     if(nx.k==='recv'){const bad=[...document.querySelectorAll('.acc')].some(x=>x.value===''||+x.value<0);if(bad){d.steps.pop();toast('請填每一項的驗收數量');return}
       document.querySelectorAll('.acc').forEach(x=>{d.lines[+x.dataset.i].acc=+x.value})}
+    if(nx.k==='pay'&&d.kind==='PO'&&paidOf(d)<amount(d)&&$('#st-pm').value===PREPAY){const fw0=feeVal('st'),need=amount(d)-paidOf(d)-fw0.fee-fw0.wire;if(need>prepayBal(d.party)+0.004){d.steps.pop();toast('預付款餘額只剩 '+money(prepayBal(d.party))+'，不夠扣這張單');return}}
     if(nx.k==='pay'&&(d.kind==='SO'||d.kind==='PO')&&paidOf(d)<amount(d)){const st=d.steps[d.steps.length-1],pm=$('#st-pm').value,pd=paidOf(d);st.prevPaid=d.paid??null;st.method=pm;st.hadPaid=d.paid!=null;
       const fw=feeVal('st'),rest=amount(d)-pd;(d.pays=d.pays||[]).push({at:st.at,amt:rest-fw.fee-fw.wire,method:pm,by:st.by,step:true,...fw.rec});d.paid=amount(d)}
     const ap=autoPay(d,by0);save();render();openDoc(d.no);toast(d.no+' '+nx.done+(ap?'，款項已'+(d.kind==='PO'?'付':'收')+'清，付款步驟自動完成':'')+(nx.k==='ship'&&!d.xfer?'，記得列印出貨單＋收據隨貨附上':''));return}
@@ -1078,6 +1113,7 @@ $('#overlay').addEventListener('click',e=>{
         if(f.k==='recv')d.lines.forEach(l=>delete l.acc)}save();render();openDoc(d.no);toast('已退回，取消「'+f.t+'」')}return}
   if(e.target.id==='saveRet'){document.querySelectorAll('.ret').forEach((inp,i)=>{d.lines[i].ret=Math.max(0,Math.min(d.lines[i].qty,+inp.value||0));d.lines[i].price=+$('#prc-'+i).value||0});d.donation=+$('#donIn').value||0;document.querySelectorAll('.eqb').forEach(c=>{const q=d.equip[+c.dataset.i];if(q){if(c.checked)q.back=true;else delete q.back}});d.returned=true;save();render();openDoc(d.no);toast('已登記歸還');return}
   if(e.target.id==='savePay'){const v=+$('#payIn').value||0,fw=feeVal('pay');if(v<=0&&!(fw.fee+fw.wire>0))return;const pb=$('#payBy').value.trim();if(!pb){toast('請先填經手人');$('#payBy').focus();return}
+    if($('#payMethod').value===PREPAY&&v>prepayBal(d.party)+0.004){toast('預付款餘額只剩 '+money(prepayBal(d.party))+'，不夠扣');return}
     d.paid=paidOf(d)+v+fw.fee+fw.wire;(d.pays=d.pays||[]).push({at:today(),amt:v,method:$('#payMethod').value,by:pb,...fw.rec});
     autoPay(d,pb);save();render();openDoc(d.no);toast((d.kind==='PO'?'已登記付款 ':'已登記收款 ')+money(v));return}
 });
