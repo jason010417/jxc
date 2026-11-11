@@ -593,10 +593,18 @@ let formOpen=false,lineSeq=0,editing=null;const listFilter={};
 document.addEventListener('click',e=>{const b=e.target.closest('#lf button');if(!b)return;listFilter[page]=b.dataset.f;render()});
 const ilabel=i=>`${i.code} ${i.name}`;
 function picker(cls,type,sel,ph){const it=sel&&S.items.find(i=>i.id===sel);
-  return `<input class="pick" list="dl-${type||'all'}" value="${it?esc(ilabel(it)):''}" placeholder="${ph||'打料號或品名搜尋'}" autocomplete="off"><select class="${cls}" hidden>${itemOptions(type,sel)}</select>`}
+  return `<input class="pick" list="dl-${cls==='li'&&type==='buy'?'po':type||'all'}" value="${it?esc(ilabel(it)):''}" placeholder="${ph||'打料號或品名搜尋'}" autocomplete="off"><select class="${cls}" hidden>${itemOptions(type,sel)}</select>`}
 function setPick(sel,id){sel.value=id;const it=S.items.find(i=>i.id===id);sel.previousElementSibling.value=it?ilabel(it):''}
 function renderDatalists(){const box=$('#dls');if(!box)return;
-  box.innerHTML=['all','buy','成品'].map(k=>`<datalist id="dl-${k}">${S.items.filter(i=>!i.off&&typeOk(i,k)).map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}</datalist>`).join('')}
+  box.innerHTML=['all','buy','成品'].map(k=>`<datalist id="dl-${k}">${S.items.filter(i=>!i.off&&typeOk(i,k)).map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}</datalist>`).join('')+'<datalist id="dl-po"></datalist>';poList()}
+// 採購單：選了廠商之後，這家廠商的品項（品項清單的廠商，或以前跟他進過的）排在選單最前面
+let poVendor='';
+function vendorItems(v){if(!v)return new Set();const ids=new Set(S.items.filter(i=>i.vendor===v).map(i=>i.id));S.docs.forEach(d=>{if(d.kind==='PO'&&d.party===v)d.lines.forEach(l=>ids.add(l.item))});return ids}
+function poList(){const dl=$('#dl-po');if(!dl)return;const mine=vendorItems(poVendor),L=S.items.filter(i=>!i.off&&typeOk(i,'buy'));
+  const a=L.filter(i=>mine.has(i.id)),b=L.filter(i=>!mine.has(i.id));
+  dl.innerHTML=a.map(i=>`<option value="${esc(ilabel(i))}">★ ${esc(poVendor)}・${esc(i.unit)}</option>`).join('')+b.map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}
+document.addEventListener('input',e=>{if(e.target.id==='f-party'&&$('#docForm')&&$('#docForm').dataset.kind==='PO'){poVendor=e.target.value.trim();poList()}});
+document.addEventListener('change',e=>{if(e.target.id==='f-party'&&$('#docForm')&&$('#docForm').dataset.kind==='PO'){poVendor=e.target.value.trim();poList()}});
 document.addEventListener('change',e=>{if(!e.target.classList.contains('pick'))return;const sel=e.target.nextElementSibling;const v=e.target.value.trim();
   const it=S.items.find(i=>ilabel(i)===v)||S.items.find(i=>i.code===v)||S.items.find(i=>i.name===v)||(v?(()=>{const m=S.items.filter(i=>ilabel(i).includes(v));return m.length===1?m[0]:null})():null);
   if(it&&![...sel.options].some(o=>o.value===it.id)){e.target.setCustomValidity('這個品項不適用這裡');e.target.reportValidity();return}
@@ -607,11 +615,11 @@ function itemOptions(type,sel){
   return '<option value="">選擇品項</option>'+S.items.filter(i=>i.id===sel||!i.off&&typeOk(i,type)).map(i=>`<option value="${i.id}" ${i.id===sel?'selected':''}>${esc(i.code)} ${esc(i.name)}（${esc(i.unit)}）</option>`).join('');
 }
 function lineHTML(kind,type,dir){
-  const k=KINDS[kind],id=++lineSeq;
-  return `<div class="line ${k.priced?'':'noprice'}" data-dir="${dir||''}">
+  const k=KINDS[kind],id=++lineSeq,priced=k.priced&&dir!=='gift';
+  return `<div class="line ${priced?'':'noprice'}" data-dir="${dir||''}">
     <label class="f"><span class="lcap">品項</span>${picker('li',type)}</label>
     <label class="f">數量<input id="lq-${id}" class="lq" type="number" min="0" step="any" inputmode="decimal"></label>
-    ${k.priced?`<label class="f">單價<input id="lp-${id}" class="lp" type="number" min="0" inputmode="decimal"></label>`:''}
+    ${priced?`<label class="f">單價<input id="lp-${id}" class="lp" type="number" min="0" inputmode="decimal"></label>`:''}
     <button type="button" class="btn small rm" aria-label="移除這一列">✕</button></div>`;
 }
 function linesBlock(kind,type,dir,title){
@@ -627,7 +635,7 @@ function kindHTML(kind){
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>lname(l)+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'||kind==='PO'?payState(d):null;
     return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
-  const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'');
+  const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'')+(kind==='SO'?linesBlock(kind,'成品','gift','贈品（不算金額、不印在收據上，但會扣庫存）'):'');
   return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶或調撥到其他地點時填一張，收款可以分次登記。'}[kind]}</p></div>
     <button type="button" class="btn primary" id="toggleForm">${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
   <form class="panel" id="docForm" data-kind="${kind}" ${formOpen?'':'hidden'}>
@@ -652,7 +660,7 @@ function kindHTML(kind){
   <section class="panel">${hasStage(kind)?`<div class="row between"><div class="seg" id="lf">${[['open',kind==='EX'?'帶出中':'進行中'],['done',kind==='EX'?'已歸還':'已完成'],['all','全部']].map(([k2,t])=>`<button type="button" data-f="${k2}" aria-pressed="${lf===k2}">${t}（${all.filter(d=>k2==='all'||(k2==='open'?!docDone(d):docDone(d))).length}）</button>`).join('')}</div><span class="hint">流程：${kind==='EX'?'帶出 → 活動結束登記歸還':FLOW[kind].map(f=>f.t).join(' → ')}</span></div>`:''}<input id="dq" class="rowfilter" data-target="#docBody" placeholder="搜尋單號、${k.party}、品名" style="max-width:300px"><div class="tablebox">${docs.length?`<table><thead>${head}</thead><tbody id="docBody">${rows}</tbody></table>`:'<p class="empty">還沒有單據，按右上角新增第一張。</p>'}</div><p class="hint">點任一張單可以看 A4 版面${kind==='EX'?'、登記歸還':''}${kind==='SO'?'、登記收款':''}。</p></section>`;
 }
 document.addEventListener('click',e=>{
-  if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;exDaily=false;render();return}
+  if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;exDaily=false;poVendor='';render();return}
   const add=e.target.closest('.addline');
   if(add){const box=add.parentElement.previousElementSibling;box.insertAdjacentHTML('beforeend',lineHTML(page,add.dataset.type,add.dataset.dir));return}
   const rm=e.target.closest('.rm');
@@ -710,7 +718,7 @@ document.addEventListener('submit',e=>{
     const by=$('#f-editor').value.trim();if(!by){err.textContent='請填修改人。';return}
     if(kind==='PO')lines.forEach(l=>{const o=d.lines.find(x=>x.item===l.item&&x.acc!=null);if(o)l.acc=o.acc});
     if(kind==='EX')lines.forEach((l,i)=>{const o=d.lines.find(x=>l.other?x.other&&x.name===l.name:x.item===l.item);l.ret=o?Math.min(o.ret||0,l.qty):0;if(o&&o.price!=null)l.price=o.price});
-    const sum=ls=>ls.map(l=>(l.dir==='use'?'[領用]':l.dir==='out'?'[完工]':'')+lname(l)+'×'+l.qty+(l.price!=null&&KINDS[kind].priced?'@'+l.price:'')).join('、');
+    const sum=ls=>ls.map(l=>(l.dir==='use'?'[領用]':l.dir==='out'?'[完工]':l.dir==='gift'?'[贈品]':'')+lname(l)+'×'+l.qty+(l.price!=null&&KINDS[kind].priced?'@'+l.price:'')).join('、');
     const ch=[];if(d.date!==date)ch.push(`日期：${d.date} → ${date}`);if(d.party!==(party||'—'))ch.push(`${k.party}：${d.party} → ${party||'—'}`);
     if(sum(d.lines)!==sum(lines))ch.push(`品項：${sum(d.lines)} → ${sum(lines)}`);
     const cu=kind==='SO'?customVal():null,av=kind==='SO'?arrVal():null;
@@ -755,7 +763,7 @@ function todoLists(){
   return {st,so,po,ex,low};
 }
 function todoCount(){try{const t=todoLists();return t.so.length+t.po.length+t.ex.length}catch(e){return 0}}
-const docSum=d=>d.lines.map(l=>lname(l)+'×'+fmt(l.qty)).join('、');
+const docSum=d=>d.lines.map(l=>lname(l)+(l.dir==='gift'?'（贈）':'')+'×'+fmt(l.qty)).join('、');
 const lateArr=d=>{const end=d.arr2||d.arr;return d.kind==='SO'&&end&&end<today()&&stepN(d)<3};
 function todoHTML(){
   const {st,so,po,ex,low}=todoLists(),mon=today().slice(0,7);
@@ -962,7 +970,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#lightbox')){$('
 let delArm=false;
 function fillEdit(){
   const d=S.docs.find(x=>x.no===editing);if(!d)return;
-  $('#f-date').value=d.date;$('#f-party').value=d.party==='—'?'':d.party;showPartyInfo();
+  $('#f-date').value=d.date;$('#f-party').value=d.party==='—'?'':d.party;showPartyInfo();if(d.kind==='PO'){poVendor=d.party;poList()}
   if($('#f-type')){$('#f-type').value=d.xfer?'xfer':'sale';typeUI()}
   if($('#f-taker'))$('#f-taker').value=d.taker||'';
   if(d.kind==='EX'){setExDaily(!!d.daily);$('#f-evlink').value=(d.ev&&d.ev.link)||'';$('#f-evnote').value=(d.ev&&d.ev.note)||'';
@@ -1013,7 +1021,7 @@ function paperHTML(d){
     foot=(d.fee?`<tr><td colspan="7">運費</td><td class="n">${fmt(d.fee)}</td></tr>`:'')+(d.discount?`<tr><td colspan="7">折扣</td><td class="n">${fmt(d.discount)}</td></tr>`:'')+`<tr><td colspan="7">合計${d.lines.some(l=>l.acc!=null)?'（依驗收數量）':''}</td><td class="n">${fmt(amount(d))}</td></tr>`;
     if(stepN(d)>=2)foot+=`<tr><td colspan="7">已付</td><td class="n">${fmt(paidOf(d))}</td></tr><tr><td colspan="7">未付</td><td class="n">${fmt(amount(d)-paidOf(d))}</td></tr>`;}
   else{head='<th>#</th><th>料號</th><th>品名</th><th>單位</th><th class="n">數量</th><th class="n">單價</th><th class="n">金額</th>';
-    rows=d.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(item(l.item).code)}</td><td>${esc(item(l.item).name)}</td><td>${esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${fmt(l.price)}</td><td class="n">${fmt(l.qty*l.price)}</td></tr>`).join('');
+    rows=d.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(item(l.item).code)}</td><td>${esc(item(l.item).name)}${l.dir==='gift'?'（贈品）':''}</td><td>${esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${l.dir==='gift'?'贈品':fmt(l.price)}</td><td class="n">${l.dir==='gift'?'0':fmt(l.qty*l.price)}</td></tr>`).join('');
     foot=(d.fee?`<tr><td colspan="6">運費</td><td class="n">${fmt(d.fee)}</td></tr>`:'')+(d.discount?`<tr><td colspan="6">折扣</td><td class="n">${fmt(d.discount)}</td></tr>`:'')+`<tr><td colspan="6">合計</td><td class="n">${fmt(amount(d))}</td></tr>`;
     if(d.kind==='SO'&&!d.xfer)foot+=`<tr><td colspan="6">已收</td><td class="n">${fmt(d.paid)}</td></tr><tr><td colspan="6">未收</td><td class="n">${fmt(amount(d)-(d.paid||0))}</td></tr>`;}
   const combo=d.kind==='SO'&&!d.xfer;
@@ -1071,7 +1079,7 @@ function capNum(n){n=Math.round(n);if(n===0)return '零';const D='零壹貳參�
   return out.replace(/零$/,'')}
 function receiptHTML(d){
   const c=S.customers.find(x=>x.name===d.party)||{};const date=d.rdate||d.date;
-  const ls=d.lines.slice();if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<8)ls.push(null);const tot=amount(d);
+  const ls=d.lines.filter(l=>l.dir!=='gift');if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<8)ls.push(null);const tot=amount(d);
   return `<div class="rcpt"><table>
     <tr><td class="nb"></td><td class="nb rt" colspan="4" rowspan="2">免用統一發票收據</td><td class="nb" style="text-align:right">統一編號:</td><td class="nb" colspan="2" style="text-align:left">${esc(c.taxId||'')}</td></tr>
     <tr><td class="nb"></td><td class="nb" style="text-align:right">日期:</td><td class="nb" colspan="2" style="text-align:left">${date.replace(/-/g,'/')}</td></tr>
