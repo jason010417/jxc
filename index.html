@@ -654,7 +654,7 @@ function kindHTML(kind){
     ${kind==='SO'?`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-custom" style="width:auto">這是客訂單（客製化商品）</label>
     <div id="customBox" class="custom" hidden><label class="f">客訂說明（尺寸、顏色、字樣、交期⋯）<textarea id="f-spec" rows="3"></textarea></label>
       <p class="sub">收據品項（照客人訂的寫，算金額、印在收據上；不扣庫存）</p><div id="cuLines">${cuRow()}</div><div><button type="button" class="btn small" id="addCu">＋ 加一列</button></div>
-      ${linesBlock('SO','buy','mat','客製用料（實際用掉的半成品、包材、標籤；不算金額、不印收據，出貨後扣庫存）')}
+      ${linesBlock('SO','all','mat','客製用料（實際用掉的成品、半成品、包材、標籤；不算金額、不印收據，出貨後扣庫存）')}
       ${editing?'<p class="hint">照片請在單據畫面新增或移除。</p>':'<label class="f">成品參考照片（可一次選多張，手機可直接拍照）<input type="file" id="f-photos" accept="image/*" multiple></label><div class="photos" id="f-prev"></div>'}</div>`:''}
     ${body}
     <p class="err" id="f-err"></p>
