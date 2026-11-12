@@ -298,7 +298,7 @@ const KINDS={
   PO:{name:'採購驗收單',short:'採購',party:'廠商',priced:true,type:'buy',sign:['驗收人','主管','財務對帳']},
   MO:{name:'生產製造單',short:'生產',party:'負責人',priced:false,sign:['領料人','生產負責人','主管']},
   EX:{name:'外展借還單',short:'外展',party:'活動名稱',priced:false,type:'成品',sign:['帶出人','歸還點收','主管']},
-  SO:{name:'銷貨出貨單',short:'銷貨',party:'客戶',priced:true,type:'成品',sign:['出貨人','客戶簽收','財務對帳']}
+  SO:{name:'銷貨出貨單',short:'銷貨',party:'客戶',priced:true,type:'sell',sign:['出貨人','客戶簽收','財務對帳']}
 };
 const PAGES=[['todo','待辦工作'],['SO','銷貨出貨'],['PO','採購'],['MO','生產'],['EX','外展借還'],['ar','應收付帳款'],['hist','歷史查詢'],['home','庫存總表'],['items','品項清單'],['bom','BOM 設定'],['contacts','顧客／廠商']];
 const KEY='erp-local-v2';
@@ -596,7 +596,7 @@ function picker(cls,type,sel,ph){const it=sel&&S.items.find(i=>i.id===sel);
   return `<input class="pick" list="dl-${cls==='li'&&type==='buy'?'po':type||'all'}" value="${it?esc(ilabel(it)):''}" placeholder="${ph||'打料號或品名搜尋'}" autocomplete="off"><select class="${cls}" hidden>${itemOptions(type,sel)}</select>`}
 function setPick(sel,id){sel.value=id;const it=S.items.find(i=>i.id===id);sel.previousElementSibling.value=it?ilabel(it):''}
 function renderDatalists(){const box=$('#dls');if(!box)return;
-  box.innerHTML=['all','buy','成品'].map(k=>`<datalist id="dl-${k}">${S.items.filter(i=>!i.off&&typeOk(i,k)).map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}</datalist>`).join('')+'<datalist id="dl-po"></datalist>';poList()}
+  box.innerHTML=['all','buy','sell','成品'].map(k=>`<datalist id="dl-${k}">${S.items.filter(i=>!i.off&&typeOk(i,k)).map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}</datalist>`).join('')+'<datalist id="dl-po"></datalist>';poList()}
 // 採購單：選了廠商之後，這家廠商的品項（品項清單的廠商，或以前跟他進過的）排在選單最前面
 let poVendor='';
 function vendorItems(v){if(!v)return new Set();const ids=new Set(S.items.filter(i=>i.vendor===v).map(i=>i.id));S.docs.forEach(d=>{if(d.kind==='PO'&&d.party===v)d.lines.forEach(l=>ids.add(l.item))});return ids}
@@ -610,7 +610,7 @@ document.addEventListener('change',e=>{if(!e.target.classList.contains('pick'))r
   if(it&&![...sel.options].some(o=>o.value===it.id)){e.target.setCustomValidity('這個品項不適用這裡');e.target.reportValidity();return}
   e.target.setCustomValidity('');sel.value=it?it.id:'';if(it)e.target.value=ilabel(it);else if(v)toast('找不到「'+v+'」，請從清單選');
   sel.dispatchEvent(new Event('change',{bubbles:true}))});
-function typeOk(i,t){return !t||t==='all'||(t==='buy'?i.type!=='成品':i.type===t)}
+function typeOk(i,t){return !t||t==='all'||(t==='buy'?i.type!=='成品':t==='sell'?['成品','包材','客製'].includes(i.type):i.type===t)}
 function itemOptions(type,sel){
   return '<option value="">選擇品項</option>'+S.items.filter(i=>i.id===sel||!i.off&&typeOk(i,type)).map(i=>`<option value="${i.id}" ${i.id===sel?'selected':''}>${esc(i.code)} ${esc(i.name)}（${esc(i.unit)}）</option>`).join('');
 }
@@ -635,7 +635,7 @@ function kindHTML(kind){
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>lname(l)+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'||kind==='PO'?payState(d):null;
     return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
-  const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'')+(kind==='SO'?linesBlock(kind,'成品','gift','贈品（不算金額、不印在收據上，但會扣庫存）'):'');
+  const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'')+(kind==='SO'?linesBlock(kind,'sell','gift','贈品（不算金額、不印在收據上，但會扣庫存）'):'');
   return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶或調撥到其他地點時填一張，收款可以分次登記。'}[kind]}</p></div>
     <button type="button" class="btn primary" id="toggleForm">${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
   <form class="panel" id="docForm" data-kind="${kind}" ${formOpen?'':'hidden'}>
