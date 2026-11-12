@@ -109,7 +109,8 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mu
 input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0;width:100%}
 .grid-f{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 .lines{display:flex;flex-direction:column;gap:8px;counter-reset:ln}
-#exOther{counter-reset:ln}
+#exOther,#cuLines{counter-reset:ln}
+#cuLines{display:flex;flex-direction:column;gap:8px}
 .lcap::before{counter-increment:ln;content:counter(ln) '. ';color:var(--accent);font-weight:600;font-size:14px}
 .exn{color:var(--accent);font-weight:600;width:2.5em}
 .line{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end}
@@ -593,7 +594,7 @@ let formOpen=false,lineSeq=0,editing=null;const listFilter={};
 document.addEventListener('click',e=>{const b=e.target.closest('#lf button');if(!b)return;listFilter[page]=b.dataset.f;render()});
 const ilabel=i=>`${i.code} ${i.name}`;
 function picker(cls,type,sel,ph){const it=sel&&S.items.find(i=>i.id===sel);
-  return `<input class="pick" list="dl-${cls==='li'&&type==='buy'?'po':type||'all'}" value="${it?esc(ilabel(it)):''}" placeholder="${ph||'打料號或品名搜尋'}" autocomplete="off"><select class="${cls}" hidden>${itemOptions(type,sel)}</select>`}
+  return `<input class="pick" list="dl-${cls==='li'&&type==='buy'&&page==='PO'?'po':type||'all'}" value="${it?esc(ilabel(it)):''}" placeholder="${ph||'打料號或品名搜尋'}" autocomplete="off"><select class="${cls}" hidden>${itemOptions(type,sel)}</select>`}
 function setPick(sel,id){sel.value=id;const it=S.items.find(i=>i.id===id);sel.previousElementSibling.value=it?ilabel(it):''}
 function renderDatalists(){const box=$('#dls');if(!box)return;
   box.innerHTML=['all','buy','sell','成品'].map(k=>`<datalist id="dl-${k}">${S.items.filter(i=>!i.off&&typeOk(i,k)).map(i=>`<option value="${esc(ilabel(i))}">${esc(i.unit)}</option>`).join('')}</datalist>`).join('')+'<datalist id="dl-po"></datalist>';poList()}
@@ -615,7 +616,7 @@ function itemOptions(type,sel){
   return '<option value="">選擇品項</option>'+S.items.filter(i=>i.id===sel||!i.off&&typeOk(i,type)).map(i=>`<option value="${i.id}" ${i.id===sel?'selected':''}>${esc(i.code)} ${esc(i.name)}（${esc(i.unit)}）</option>`).join('');
 }
 function lineHTML(kind,type,dir){
-  const k=KINDS[kind],id=++lineSeq,priced=k.priced&&dir!=='gift';
+  const k=KINDS[kind],id=++lineSeq,priced=k.priced&&dir!=='gift'&&dir!=='mat';
   return `<div class="line ${priced?'':'noprice'}" data-dir="${dir||''}">
     <label class="f"><span class="lcap">品項</span>${picker('li',type)}</label>
     <label class="f">數量<input id="lq-${id}" class="lq" type="number" min="0" step="any" inputmode="decimal"></label>
@@ -652,6 +653,8 @@ function kindHTML(kind){
     ${kind==='SO'||kind==='PO'?'<div id="partyInfo" class="pinfo" hidden></div>':''}
     ${kind==='SO'?`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-custom" style="width:auto">這是客訂單（客製化商品）</label>
     <div id="customBox" class="custom" hidden><label class="f">客訂說明（尺寸、顏色、字樣、交期⋯）<textarea id="f-spec" rows="3"></textarea></label>
+      <p class="sub">收據品項（照客人訂的寫，算金額、印在收據上；不扣庫存）</p><div id="cuLines">${cuRow()}</div><div><button type="button" class="btn small" id="addCu">＋ 加一列</button></div>
+      ${linesBlock('SO','buy','mat','客製用料（實際用掉的半成品、包材、標籤；不算金額、不印收據，出貨後扣庫存）')}
       ${editing?'<p class="hint">照片請在單據畫面新增或移除。</p>':'<label class="f">成品參考照片（可一次選多張，手機可直接拍照）<input type="file" id="f-photos" accept="image/*" multiple></label><div class="photos" id="f-prev"></div>'}</div>`:''}
     ${body}
     <p class="err" id="f-err"></p>
@@ -710,7 +713,9 @@ document.addEventListener('submit',e=>{
   if(TAKER[kind]&&!$('#f-taker').value.trim()){err.textContent='請填'+TAKER[kind]+'。';$('#f-taker').focus();return}
   const exv=kind==='EX'?exFormVal():null;
   const lines=exv?exv.lines:[];
-  if(!exv)e.target.querySelectorAll('.line').forEach(r=>{const it=r.querySelector('.li').value,q=+r.querySelector('.lq').value;const p=r.querySelector('.lp');
+  const cuOn=kind==='SO'&&$('#f-custom')&&$('#f-custom').checked;
+  if(cuOn)document.querySelectorAll('#cuLines .cuo').forEach(r=>{const n=r.querySelector('.cn').value.trim(),q=+r.querySelector('.cq').value;if(n&&q>0)lines.push({other:true,name:n,qty:q,price:+r.querySelector('.cp').value||0})});
+  if(!exv)e.target.querySelectorAll('.line:not(.cuo)').forEach(r=>{if(!cuOn&&r.closest('#customBox'))return;const it=r.querySelector('.li').value,q=+r.querySelector('.lq').value;const p=r.querySelector('.lp');
     if(it&&q>0){const l={item:it,qty:q};if(p)l.price=+p.value||0;if(r.dataset.dir)l.dir=r.dataset.dir;if(kind==='EX')l.ret=0;lines.push(l)}});
   if(!lines.length){err.textContent=kind==='EX'?'至少要填一項帶出的成品或其它品項的數量。':'至少要有一列選了品項、填了數量。';return}
   if(kind==='MO'&&!lines.some(l=>l.dir==='out')){err.textContent='請填完工的成品數量。';return}
@@ -718,7 +723,7 @@ document.addEventListener('submit',e=>{
     const by=$('#f-editor').value.trim();if(!by){err.textContent='請填修改人。';return}
     if(kind==='PO')lines.forEach(l=>{const o=d.lines.find(x=>x.item===l.item&&x.acc!=null);if(o)l.acc=o.acc});
     if(kind==='EX')lines.forEach((l,i)=>{const o=d.lines.find(x=>l.other?x.other&&x.name===l.name:x.item===l.item);l.ret=o?Math.min(o.ret||0,l.qty):0;if(o&&o.price!=null)l.price=o.price});
-    const sum=ls=>ls.map(l=>(l.dir==='use'?'[領用]':l.dir==='out'?'[完工]':l.dir==='gift'?'[贈品]':'')+lname(l)+'×'+l.qty+(l.price!=null&&KINDS[kind].priced?'@'+l.price:'')).join('、');
+    const sum=ls=>ls.map(l=>(l.dir==='use'?'[領用]':l.dir==='out'?'[完工]':l.dir==='gift'?'[贈品]':l.dir==='mat'?'[用料]':l.other&&kind==='SO'?'[客製]':'')+lname(l)+'×'+l.qty+(l.price!=null&&KINDS[kind].priced?'@'+l.price:'')).join('、');
     const ch=[];if(d.date!==date)ch.push(`日期：${d.date} → ${date}`);if(d.party!==(party||'—'))ch.push(`${k.party}：${d.party} → ${party||'—'}`);
     if(sum(d.lines)!==sum(lines))ch.push(`品項：${sum(d.lines)} → ${sum(lines)}`);
     const cu=kind==='SO'?customVal():null,av=kind==='SO'?arrVal():null;
@@ -763,7 +768,7 @@ function todoLists(){
   return {st,so,po,ex,low};
 }
 function todoCount(){try{const t=todoLists();return t.so.length+t.po.length+t.ex.length}catch(e){return 0}}
-const docSum=d=>d.lines.map(l=>lname(l)+(l.dir==='gift'?'（贈）':'')+'×'+fmt(l.qty)).join('、');
+const docSum=d=>d.lines.map(l=>lname(l)+(l.dir==='gift'?'（贈）':l.dir==='mat'?'（料）':'')+'×'+fmt(l.qty)).join('、');
 const lateArr=d=>{const end=d.arr2||d.arr;return d.kind==='SO'&&end&&end<today()&&stepN(d)<3};
 function todoHTML(){
   const {st,so,po,ex,low}=todoLists(),mon=today().slice(0,7);
@@ -887,6 +892,7 @@ function exInfoHTML(d){const ev=d.ev||{};if(!ev.link&&!ev.note)return '';
   return `${ev.link||ev.note?`<div class="pinfo" style="display:flex;flex-direction:column;gap:6px">`:''}${ev.link?`<div><b>活動連結：</b>${safe?`<a href="${esc(ev.link)}" target="_blank" rel="noopener">${esc(ev.link)}</a>`:esc(ev.link)}</div>`:''}${ev.note?`<div style="white-space:pre-wrap"><b>說明：</b>${esc(ev.note)}</div>`:''}${ev.link||ev.note?'</div>':''}`}
 function exPaperExtra(d){const ev=d.ev||{},eq=d.equip||[];
   return `${eq.length?`<table><thead><tr><th>設備</th><th>數量／備註</th><th style="width:5em">帶出</th><th style="width:5em">帶回</th></tr></thead><tbody>${eq.map(q=>`<tr><td>${q.g?'　└ '+esc(q.n):esc(eqName(q.n))}</td><td>${esc(q.note||'')}</td><td style="text-align:center">${q.out?'☑':'☐'}</td><td style="text-align:center">${q.back?'☑':'☐'}</td></tr>`).join('')}</tbody></table>`:''}`}
+function cuRow(o){return `<div class="line cuo"><label class="f"><span class="lcap">品名（印在收據）</span><input class="cn" value="${esc(o?o.name:'')}" placeholder="例如：客製禮盒（XX公司）"></label><label class="f">數量<input class="cq" type="number" min="0" step="any" inputmode="decimal" value="${o?o.qty:''}"></label><label class="f">單價<input class="cp" type="number" min="0" step="any" inputmode="decimal" value="${o&&o.price!=null?o.price:''}"></label><button type="button" class="btn small crm" aria-label="移除這一列">✕</button></div>`}
 function otherRow(o){return `<div class="line exo"><label class="f"><span class="lcap">品名（不算庫存）</span><input class="on" value="${esc(o?o.name:'')}" placeholder="例如：手作香包、多肉植栽"></label><label class="f">數量<input class="oq" type="number" min="0" step="any" inputmode="decimal" value="${o?o.qty:''}"></label><label class="f">售價（可留空）<input class="op" type="number" min="0" step="any" inputmode="decimal" value="${o&&o.price!=null?o.price:''}"></label><button type="button" class="btn small orm" aria-label="移除這一列">✕</button></div>`}
 let exDaily=false;
 function dailyItem(){const L=S.items.filter(i=>!i.off&&i.type==='成品');return L.find(i=>i.code==='103008-003')||L.find(i=>/爆米花/.test(i.name)&&/100\s*g/i.test(i.name+i.unit))}
@@ -928,6 +934,8 @@ function exFormVal(){
 }
 const equipText=eq=>(eq||[]).map(e=>eqLabel(e)+(e.note?'('+e.note+')':'')).join('、');
 document.addEventListener('click',e=>{
+  if(e.target.id==='addCu'){$('#cuLines').insertAdjacentHTML('beforeend',cuRow());return}
+  const cr=e.target.closest('.crm');if(cr){const box=$('#cuLines');if(box.children.length>1)cr.closest('.cuo').remove();else cr.closest('.cuo').querySelectorAll('input').forEach(i=>i.value='');return}
   if(e.target.id==='addOther'){$('#exOther').insertAdjacentHTML('beforeend',otherRow());return}
   const r=e.target.closest('.orm');if(r){const box=$('#exOther');if(box.children.length>1)r.closest('.exo').remove();else r.closest('.exo').querySelectorAll('input').forEach(i=>i.value='')}
 });
@@ -979,10 +987,10 @@ function fillEdit(){
     const os=d.lines.filter(l=>l.other);if(os.length)$('#exOther').innerHTML=os.map(otherRow).join('')}
   if($('#f-rdate')){$('#f-rdate').value=d.rdate||d.date;if(d.rdate)$('#f-rdate').dataset.touched='1'}
   if($('#f-arr1')){$('#f-arr1').value=d.arr||'';$('#f-arr2').value=d.arr2||''}
-  if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom}
+  if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom;const cs=d.lines.filter(l=>l.other);if(cs.length)$('#cuLines').innerHTML=cs.map(cuRow).join('')}
   const names=[...new Set(S.docs.flatMap(x=>(x.log||[]).map(g=>g.by).concat((x.steps||[]).map(s=>s.by))).filter(Boolean))];
   $('#docForm').insertAdjacentHTML('beforeend',`<datalist id="st-bys2">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`);
-  document.querySelectorAll('#docForm .lines').forEach(box=>{const dir=box.dataset.dir,type=box.dataset.type;const ls=d.lines.filter(l=>(l.dir||'')===dir);
+  document.querySelectorAll('#docForm .lines').forEach(box=>{const dir=box.dataset.dir,type=box.dataset.type;const ls=d.lines.filter(l=>!l.other&&(l.dir||'')===dir);
     box.innerHTML='';(ls.length?ls:[null]).forEach(l=>{box.insertAdjacentHTML('beforeend',lineHTML(d.kind,type,dir));const r=box.lastElementChild;
       if(l){setPick(r.querySelector('.li'),l.item);r.querySelector('.lq').value=l.qty;const lp=r.querySelector('.lp');if(lp)lp.value=l.price??''}})});
   const sb=$('#docForm button[type=submit]');if(sb)sb.textContent='存檔修改';
@@ -1021,7 +1029,8 @@ function paperHTML(d){
     foot=(d.fee?`<tr><td colspan="7">運費</td><td class="n">${fmt(d.fee)}</td></tr>`:'')+(d.discount?`<tr><td colspan="7">折扣</td><td class="n">${fmt(d.discount)}</td></tr>`:'')+`<tr><td colspan="7">合計${d.lines.some(l=>l.acc!=null)?'（依驗收數量）':''}</td><td class="n">${fmt(amount(d))}</td></tr>`;
     if(stepN(d)>=2)foot+=`<tr><td colspan="7">已付</td><td class="n">${fmt(paidOf(d))}</td></tr><tr><td colspan="7">未付</td><td class="n">${fmt(amount(d)-paidOf(d))}</td></tr>`;}
   else{head='<th>#</th><th>料號</th><th>品名</th><th>單位</th><th class="n">數量</th><th class="n">單價</th><th class="n">金額</th>';
-    rows=d.lines.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(item(l.item).code)}</td><td>${esc(item(l.item).name)}${l.dir==='gift'?'（贈品）':''}</td><td>${esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${l.dir==='gift'?'贈品':fmt(l.price)}</td><td class="n">${l.dir==='gift'?'0':fmt(l.qty*l.price)}</td></tr>`).join('');
+    const np=l=>l.dir==='gift'||l.dir==='mat',sl=[...d.lines.filter(l=>!l.dir||l.dir==='gift'),...d.lines.filter(l=>l.dir==='mat')];
+    rows=sl.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(lcode(l))}</td><td>${esc(lname(l))}${l.dir==='gift'?'（贈品）':l.dir==='mat'?'（客製用料）':''}</td><td>${l.other?'':esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${l.dir==='gift'?'贈品':l.dir==='mat'?'—':fmt(l.price)}</td><td class="n">${np(l)?'0':fmt(l.qty*l.price)}</td></tr>`).join('');
     foot=(d.fee?`<tr><td colspan="6">運費</td><td class="n">${fmt(d.fee)}</td></tr>`:'')+(d.discount?`<tr><td colspan="6">折扣</td><td class="n">${fmt(d.discount)}</td></tr>`:'')+`<tr><td colspan="6">合計</td><td class="n">${fmt(amount(d))}</td></tr>`;
     if(d.kind==='SO'&&!d.xfer)foot+=`<tr><td colspan="6">已收</td><td class="n">${fmt(d.paid)}</td></tr><tr><td colspan="6">未收</td><td class="n">${fmt(amount(d)-(d.paid||0))}</td></tr>`;}
   const combo=d.kind==='SO'&&!d.xfer;
@@ -1079,13 +1088,13 @@ function capNum(n){n=Math.round(n);if(n===0)return '零';const D='零壹貳參�
   return out.replace(/零$/,'')}
 function receiptHTML(d){
   const c=S.customers.find(x=>x.name===d.party)||{};const date=d.rdate||d.date;
-  const ls=d.lines.filter(l=>l.dir!=='gift');if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<8)ls.push(null);const tot=amount(d);
+  const ls=d.lines.filter(l=>l.dir!=='gift'&&l.dir!=='mat');if(d.fee)ls.push({fee:'運費',qty:1,price:d.fee});if(d.discount)ls.push({fee:'折扣',qty:1,price:d.discount});while(ls.length<8)ls.push(null);const tot=amount(d);
   return `<div class="rcpt"><table>
     <tr><td class="nb"></td><td class="nb rt" colspan="4" rowspan="2">免用統一發票收據</td><td class="nb" style="text-align:right">統一編號:</td><td class="nb" colspan="2" style="text-align:left">${esc(c.taxId||'')}</td></tr>
     <tr><td class="nb"></td><td class="nb" style="text-align:right">日期:</td><td class="nb" colspan="2" style="text-align:left">${date.replace(/-/g,'/')}</td></tr>
     <tr><td class="nb"></td><td class="nb rc" colspan="4" style="border-bottom:1px solid var(--paper-ink)">${esc((c.title||"").trim())}</td><td class="nb rc" colspan="3" style="text-align:left">台照</td></tr>
     <tr><td colspan="2">品名</td><td>數量</td><td>單價</td><td>總價</td><td colspan="3">備註</td></tr>
-    ${ls.map((l,i)=>`<tr><td style="width:2.5em">${i+1}</td><td style="text-align:left;min-width:12em;white-space:normal">${l?esc(l.fee||item(l.item).name):''}</td><td>${l?fmt(l.qty):''}</td><td class="n">${l?fmt(l.price):''}</td><td class="n">${l?fmt(l.qty*l.price):''}</td>${i===0?'<td colspan="3" class="stamp">收據專用章</td>':i===1?`<td colspan="3" rowspan="${ls.length-1}" class="nb sbox" style="border:1px solid var(--paper-ink)">${STAMPS.receipt?`<img src="${STAMPS.receipt}" alt="收據章">`:''}</td>`:''}</tr>`).join('')}
+    ${ls.map((l,i)=>`<tr><td style="width:2.5em">${i+1}</td><td style="text-align:left;min-width:12em;white-space:normal">${l?esc(l.fee||lname(l)):''}</td><td>${l?fmt(l.qty):''}</td><td class="n">${l?fmt(l.price):''}</td><td class="n">${l?fmt(l.qty*l.price):''}</td>${i===0?'<td colspan="3" class="stamp">收據專用章</td>':i===1?`<td colspan="3" rowspan="${ls.length-1}" class="nb sbox" style="border:1px solid var(--paper-ink)">${STAMPS.receipt?`<img src="${STAMPS.receipt}" alt="收據章">`:''}</td>`:''}</tr>`).join('')}
     <tr><td colspan="4">合計</td><td class="n">${fmt(tot)}</td><td colspan="2" rowspan="2" class="cap">銀貨兩訖</td><td rowspan="2" class="seal">${STAMPS.owner?`<img src="${STAMPS.owner}" alt="負責人章">`:''}</td></tr>
     <tr><td colspan="5" class="cap">合計新臺幣 ${capNum(tot)} 元整</td></tr>
   </table></div>`;
@@ -1149,9 +1158,9 @@ function renderHist(){
   const hq=(hist.q||'').trim().toLowerCase();
   const docs=S.docs.filter(d=>d.kind===kind&&!d.xfer&&(!hist.name||d.party.includes(hist.name))&&(!hq||(d.no+' '+d.party+' '+d.lines.map(l=>ilabel(item(l.item))).join(' ')).toLowerCase().includes(hq))&&(!hist.from||d.date>=hist.from)&&(!hist.to||d.date<=hist.to)&&(!hist.item||d.lines.some(l=>l.item===hist.item))).sort((a,b)=>b.date.localeCompare(a.date));
   let tq=0,ta=0,tp=0;
-  const rows=docs.map(d=>{const ls=hist.item?d.lines.filter(l=>l.item===hist.item):d.lines;const q=ls.reduce((a,l)=>a+lq(d,l),0),a=ls.reduce((s,l)=>s+lq(d,l)*l.price,0);tq+=q;ta+=a;
+  const rows=docs.map(d=>{const ls=hist.item?d.lines.filter(l=>l.item===hist.item):d.lines.filter(l=>l.dir!=='mat');const q=ls.reduce((a,l)=>a+lq(d,l),0),a=ls.reduce((s,l)=>s+lq(d,l)*(l.price||0),0);tq+=q;ta+=a;
     const full=amount(d),un=full-(d.paid||0);tp+=isSO?un:0;const ps=isSO?payState(d):null;
-    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.custom?' <span class="pill warn">客訂</span>':''}</td><td>${d.date}</td><td>${esc(d.party)}</td><td>${esc(ls.map(l=>item(l.item).code+' '+item(l.item).name+' ×'+fmt(l.qty)+' @'+fmt(l.price)).join('、'))}</td><td class="n">${fmt(q)}</td><td class="n">${money(a)}</td>${isSO?`<td class="n">${money(un)}</td><td><span class="pill ${ps[1]}">${ps[0]}</span></td>`:''}</tr>`}).join('');
+    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.custom?' <span class="pill warn">客訂</span>':''}</td><td>${d.date}</td><td>${esc(d.party)}</td><td>${esc(ls.map(l=>(lcode(l)?lcode(l)+' ':'')+lname(l)+(l.dir==='mat'?'（客製用料）':'')+' ×'+fmt(l.qty)+' @'+fmt(l.price||0)).join('、'))}</td><td class="n">${fmt(q)}</td><td class="n">${money(a)}</td>${isSO?`<td class="n">${money(un)}</td><td><span class="pill ${ps[1]}">${ps[0]}</span></td>`:''}</tr>`}).join('');
   $('#h-out').innerHTML=docs.length?`<div class="row between"><b>${docs.length} 張${isSO?'銷貨單':'採購單'}</b>${isSO&&tp>0?`<span class="pill bad">未收合計 ${money(tp)}</span>`:''}</div>
     <div class="tablebox"><table><thead><tr><th>單號</th><th>日期</th><th>${isSO?'客戶':'廠商'}</th><th>品項明細</th><th class="n">數量</th><th class="n">金額</th>${isSO?'<th class="n">未收</th><th>收款</th>':''}</tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td colspan="4">合計${hist.item?'（只算所選品項）':''}</td><td class="n">${fmt(tq)}</td><td class="n">${money(ta)}</td>${isSO?`<td class="n">${money(tp)}</td><td></td>`:''}</tr></tfoot></table></div><p class="hint">點任一筆可打開原單、再看一次 A4 版面。</p>`
