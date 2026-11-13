@@ -1467,7 +1467,7 @@ function contactsHTML(){
       ${F.filter(f=>f[0]!=='code'&&f[0]!=='src').map(([k,t])=>k==='svc'?`<label class="f">${t}<input id="c-svc" list="c-svcs" placeholder="可選擇或自己輸入"><datalist id="c-svcs">${svcOptions(isC).map(o=>`<option value="${esc(o)}">`).join('')}</datalist></label>`:`<label class="f">${t}<input id="c-${k}"></label>`).join('')}
     </div>
     <p class="err" id="c-err"></p>
-    <div class="row"><button type="submit" class="btn primary" id="cSave">存檔</button><button type="button" class="btn" id="cNew" hidden>改成新增</button><span class="hint" id="c-codehint">編號會自動產生</span></div>
+    <div class="row"><button type="submit" class="btn primary" id="cSave">存檔</button><button type="button" class="btn" id="cNew" hidden>改成新增</button><button type="button" class="btn" id="cDel" hidden style="color:var(--bad,#b42318)">刪除這筆</button><span class="hint" id="c-codehint">編號會自動產生</span></div>
   </form>
   <section class="panel">
     <div class="row between"><div class="seg" id="cs"><button type="button" data-s="C" aria-pressed="${isC}">顧客（${S.customers.length}）</button><button type="button" data-s="V" aria-pressed="${!isC}">廠商（${S.vendors.length}）</button></div>
@@ -1479,7 +1479,7 @@ function contactsHTML(){
 function fillContact(n){
   const isC=cSide==='C',c=(isC?S.customers:S.vendors)[n],F=isC?CF:VF;if(!c)return;
   $('#cForm').hidden=false;const ro=!can('contactEdit');$('#cForm').querySelectorAll('input,select').forEach(el=>el.disabled=ro);$('#cSave').hidden=ro;
-  $('#c-idx').value=n;$('#cTitle').textContent=(ro?'查看 ':'修改 ')+c.code+' '+c.name;$('#cNew').hidden=false;$('#c-codehint').textContent='編號 '+c.code+' 不會變';
+  $('#c-idx').value=n;$('#cTitle').textContent=(ro?'查看 ':'修改 ')+c.code+' '+c.name;$('#cNew').hidden=false;$('#cDel').hidden=role!=='admin';$('#c-codehint').textContent='編號 '+c.code+' 不會變';
   F.forEach(([k])=>{const el=$('#c-'+k);if(el)el.value=c[k]||''});
   if(isC){const s=(SEED.sources||[]).find(x=>x[1]===c.src);if(s)$('#c-src').value=s[0]}else $('#c-zy').value=c.zy||'';
   $('#cForm').scrollIntoView({behavior:'smooth',block:'start'});
@@ -1488,6 +1488,10 @@ document.addEventListener('click',e=>{
   const b=e.target.closest('#cs button');if(b){cSide=b.dataset.s;render();return}
   const tr=e.target.closest('tr[data-ci]');if(tr){fillContact(+tr.dataset.ci);return}
   if(e.target.id==='cNew')render();
+  if(e.target.id==='cDel'){if(role!=='admin')return;const isC=cSide==='C',list=isC?S.customers:S.vendors,n=+$('#c-idx').value,c=list[n];if(!c)return;
+    const used=S.docs.filter(d=>d.party===c.name&&d.kind===(isC?'SO':'PO')).length;
+    if(!confirm(`確定刪除${isC?'顧客':'廠商'}「${c.code} ${c.name}」？${used?`\n\n已經有 ${used} 張${isC?'銷貨單':'採購單'}用這個名稱，單據會保留，只是之後不會再帶出這筆的統編、電話、地址。`:''}\n\n刪除後無法復原。`))return;
+    list.splice(n,1);save();toast('已刪除 '+c.name);render()}
 });
 document.addEventListener('submit',e=>{
   if(e.target.id!=='cForm')return;e.preventDefault();
