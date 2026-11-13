@@ -1450,10 +1450,13 @@ function svcOptions(isC){
     :[...new Set(S.items.map(i=>(i.cat||'').replace(/^\d+\s*/,'')).filter(Boolean)),'印刷','貨運物流','加工代工','制服'];
   return [...new Set([...base,...(isC?S.customers:S.vendors).map(c=>c.svc).filter(Boolean)])];
 }
+let cSort={k:'',d:1};
+document.addEventListener('click',e=>{const th=e.target.closest('th.csort');if(!th)return;const k=th.dataset.k;cSort=cSort.k===k?(cSort.d>0?{k,d:-1}:{k:'',d:1}):{k,d:1};const q=$('#cq')&&$('#cq').value;render();if(q){$('#cq').value=q;$('#cq').dispatchEvent(new Event('input',{bubbles:true}))}});
 function contactsHTML(){
   const isC=cSide==='C',list=isC?S.customers:S.vendors,F=isC?CF:VF;
   const show=isC?['code','name','svc','contact','phone','taxId','addr']:['code','name','svc','contact','phone','taxId','bank'];
-  const rows=list.map((c,n)=>`<tr class="click" data-ci="${n}">${show.map(k=>`<td class="${k==='code'?'mono':''}">${esc(c[k])}</td>`).join('')}</tr>`).join('');
+  const ord=list.map((c,n)=>n);if(cSort.k){const k=cSort.k,dir=cSort.d;ord.sort((a,b)=>{const x=String(list[a][k]??'').trim(),y=String(list[b][k]??'').trim();if(!x!==!y)return x?-1:1;return x.localeCompare(y,'zh-Hant-TW',{numeric:true})*dir})}
+  const rows=ord.map(n=>[list[n],n]).map(([c,n])=>`<tr class="click" data-ci="${n}">${show.map(k=>`<td class="${k==='code'?'mono':''}">${esc(c[k])}</td>`).join('')}</tr>`).join('');
   const srcOpts=(SEED.sources||[]).map(([k,t])=>`<option value="${k}">${t}</option>`).join('');
   return `<div><h2>顧客／廠商</h2><p class="lead">資料來自「進銷存20260309.xlsx」的客戶資料與供應商資料。開銷貨單、採購單時打名稱就會提示，A4 單據會自動帶出統編、電話、送貨地址。</p></div>
   <form class="panel" id="cForm" ${can('contactAdd')||can('contactEdit')?'':'hidden'}>
@@ -1469,7 +1472,7 @@ function contactsHTML(){
   <section class="panel">
     <div class="row between"><div class="seg" id="cs"><button type="button" data-s="C" aria-pressed="${isC}">顧客（${S.customers.length}）</button><button type="button" data-s="V" aria-pressed="${!isC}">廠商（${S.vendors.length}）</button></div>
     <input id="cq" class="rowfilter" data-target="#cBody" placeholder="搜尋編號、名稱、電話" style="max-width:260px"></div>
-    <div class="tablebox"><table><thead><tr>${show.map(k=>`<th>${F.find(f=>f[0]===k)[1]}</th>`).join('')}</tr></thead><tbody id="cBody">${rows}</tbody></table></div>
+    <div class="tablebox"><table><thead><tr>${show.map(k=>`<th class="csort" data-k="${k}" style="cursor:pointer;user-select:none" title="點一下排序，再點一下反過來">${F.find(f=>f[0]===k)[1]}${cSort.k===k?(cSort.d>0?' ▲':' ▼'):' ⇅'}</th>`).join('')}</tr></thead><tbody id="cBody">${rows}</tbody></table></div>
     <p class="hint">點任一筆可以查看或修改完整資料。</p>
   </section>`;
 }
