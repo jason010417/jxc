@@ -1463,6 +1463,7 @@ function contactsHTML(){
     <p class="sub" id="cTitle">＋ 新增${isC?'顧客':'廠商'}</p>
     <input type="hidden" id="c-idx" value="">
     <div class="grid-f">
+      <label class="f" id="c-codeBox" hidden>編號（管理者可修改）<input id="c-code"></label>
       ${isC?`<label class="f">客戶來源<select id="c-src">${srcOpts}</select></label>`:`<label class="f">廠商名稱首字注音<input id="c-zy" placeholder="例如：ㄅ" maxlength="2"></label>`}
       ${F.filter(f=>f[0]!=='code'&&f[0]!=='src').map(([k,t])=>k==='svc'?`<label class="f">${t}<input id="c-svc" list="c-svcs" placeholder="可選擇或自己輸入"><datalist id="c-svcs">${svcOptions(isC).map(o=>`<option value="${esc(o)}">`).join('')}</datalist></label>`:`<label class="f">${t}<input id="c-${k}"></label>`).join('')}
     </div>
@@ -1479,7 +1480,7 @@ function contactsHTML(){
 function fillContact(n){
   const isC=cSide==='C',c=(isC?S.customers:S.vendors)[n],F=isC?CF:VF;if(!c)return;
   $('#cForm').hidden=false;const ro=!can('contactEdit');$('#cForm').querySelectorAll('input,select').forEach(el=>el.disabled=ro);$('#cSave').hidden=ro;
-  $('#c-idx').value=n;$('#cTitle').textContent=(ro?'查看 ':'修改 ')+c.code+' '+c.name;$('#cNew').hidden=false;$('#cDel').hidden=role!=='admin';$('#c-codehint').textContent='編號 '+c.code+' 不會變';
+  $('#c-idx').value=n;$('#cTitle').textContent=(ro?'查看 ':'修改 ')+c.code+' '+c.name;$('#cNew').hidden=false;$('#cDel').hidden=role!=='admin';$('#c-codeBox').hidden=role!=='admin';$('#c-codehint').textContent=role==='admin'?'可以改編號，單據是用名稱對應，不受影響':'編號 '+c.code+' 不會變';
   F.forEach(([k])=>{const el=$('#c-'+k);if(el)el.value=c[k]||''});
   if(isC){const s=(SEED.sources||[]).find(x=>x[1]===c.src);if(s)$('#c-src').value=s[0]}else $('#c-zy').value=c.zy||'';
   $('#cForm').scrollIntoView({behavior:'smooth',block:'start'});
@@ -1501,6 +1502,7 @@ document.addEventListener('submit',e=>{
   const idx=$('#c-idx').value;
   if(idx===''&&!can('contactAdd')){err.textContent='一般人員不能新增，請切換成管理者。';return}
   if(idx!==''&&!can('contactEdit')){err.textContent='一般人員不能修改既有資料，請切換成管理者。';return}
+  if(idx!==''){const old=list[+idx];if(role!=='admin'||!v.code)v.code=old.code;else if(v.code!==old.code&&list.some((x,i)=>i!==+idx&&x.code===v.code)){err.textContent='編號「'+v.code+'」已經有人用了。';return}}
   if(isC){const s=(SEED.sources||[]).find(x=>x[0]===$('#c-src').value)||['O','其他'];v.src=s[1];
     if(idx===''){const p=s[0]+'-'+today().replace(/-/g,'')+'-';v.code=p+String(S.customers.filter(c=>c.code.startsWith(p)).length+1).padStart(3,'0')}}
   else{v.zy=$('#c-zy').value.trim();
