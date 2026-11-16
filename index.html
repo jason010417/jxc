@@ -1025,12 +1025,13 @@ function openDoc(no){
   action+=payPanel(d);
   $('#overlay').innerHTML=`<div class="sheetbar" data-no="${d.no}">
     <div class="row between"><b class="mono">${d.no}</b><div class="row">${can('edit')?'<button type="button" class="btn small" id="editDoc">修改這張單</button>':''}${can('del')?'<button type="button" class="btn danger small" id="delDoc">刪除這張單</button>':''}<button type="button" class="btn small" id="closeDoc">關閉</button></div></div>
-    ${d.custom?customPanel(d):''}${flowPanel(d)}${action}${logHTML(d)}<div class="row"><button type="button" class="btn" id="printDoc">列印${d.xfer?'調撥單':d.kind==='SO'?'出貨單＋收據':''}／存成 PDF</button><span class="hint">列印視窗選 A4、直向；要存 PDF 就在印表機選「另存為 PDF」。</span></div></div>${paperHTML(d)}`;
+    ${d.custom?customPanel(d):''}${flowPanel(d)}${action}${logHTML(d)}<div class="row"><button type="button" class="btn" id="printDoc">列印${d.xfer?'調撥單':d.kind==='SO'?'出貨單＋收據':''}／存成 PDF</button>${d.kind==='SO'&&!d.xfer?'<button type="button" class="btn" id="printQuote" title="同一張單改印成估價報價單，不含收據、已收未收">列印估價報價單</button>':''}<span class="hint">列印視窗選 A4、直向；要存 PDF 就在印表機選「另存為 PDF」。</span></div></div>${paperHTML(d)}`;
   $('#overlay').hidden=false;document.body.style.overflow='hidden';
   if(d.custom)showPhotos(d);
 }
-function paperHTML(d){
-  const k=d.xfer?{...KINDS.SO,name:'調撥單',party:'調撥到',sign:['出貨人','收貨人','主管']}:KINDS[d.kind];let head,rows,foot='';
+function paperHTML(d,quote){
+  quote=quote&&d.kind==='SO'&&!d.xfer;
+  const k=quote?{...KINDS.SO,name:'估價報價單',sign:['報價人','客戶確認','主管']}:d.xfer?{...KINDS.SO,name:'調撥單',party:'調撥到',sign:['出貨人','收貨人','主管']}:KINDS[d.kind];let head,rows,foot='';
   if(d.kind==='MO'){head='<th>區分</th><th>料號</th><th>品名</th><th>單位</th><th class="n">數量</th>';
     rows=d.lines.map(l=>`<tr><td>${l.dir==='use'?'領用半成品':'完工成品'}</td><td>${esc(item(l.item).code)}</td><td>${esc(item(l.item).name)}</td><td>${esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td></tr>`).join('');}
   else if(d.kind==='EX'){const pr=exPrice;head='<th>#</th><th>料號</th><th>品名</th><th class="n">帶出</th><th class="n">歸還</th><th class="n">售出</th><th class="n">售價</th><th class="n">金額</th>';
@@ -1042,11 +1043,11 @@ function paperHTML(d){
     foot=(d.fee?`<tr><td colspan="7">運費</td><td class="n">${fmt(d.fee)}</td></tr>`:'')+(d.discount?`<tr><td colspan="7">折扣</td><td class="n">${fmt(d.discount)}</td></tr>`:'')+`<tr><td colspan="7">合計${d.lines.some(l=>l.acc!=null)?'（依驗收數量）':''}</td><td class="n">${fmt(amount(d))}</td></tr>`;
     if(stepN(d)>=2)foot+=`<tr><td colspan="7">已付</td><td class="n">${fmt(paidOf(d))}</td></tr><tr><td colspan="7">未付</td><td class="n">${fmt(amount(d)-paidOf(d))}</td></tr>`;}
   else{head='<th>#</th><th>料號</th><th>品名</th><th>單位</th><th class="n">數量</th><th class="n">單價</th><th class="n">金額</th>';
-    const np=l=>l.dir==='gift'||l.dir==='mat',sl=[...d.lines.filter(l=>!l.dir||l.dir==='gift'),...d.lines.filter(l=>l.dir==='mat')];
+    const np=l=>l.dir==='gift'||l.dir==='mat',sl=[...d.lines.filter(l=>!l.dir||l.dir==='gift'),...(quote?[]:d.lines.filter(l=>l.dir==='mat'))];
     rows=sl.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(lcode(l))}</td><td>${esc(lname(l))}${l.dir==='gift'?'（贈品）':l.dir==='mat'?'（客製用料）':''}</td><td>${l.other?'':esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td><td class="n">${l.dir==='gift'?'贈品':l.dir==='mat'?'—':fmt(l.price)}</td><td class="n">${np(l)?'0':fmt(l.qty*l.price)}</td></tr>`).join('');
     foot=(d.fee?`<tr><td colspan="6">運費</td><td class="n">${fmt(d.fee)}</td></tr>`:'')+(d.discount?`<tr><td colspan="6">折扣</td><td class="n">${fmt(d.discount)}</td></tr>`:'')+`<tr><td colspan="6">合計</td><td class="n">${fmt(amount(d))}</td></tr>`;
-    if(d.kind==='SO'&&!d.xfer)foot+=`<tr><td colspan="6">已收</td><td class="n">${fmt(d.paid)}</td></tr><tr><td colspan="6">未收</td><td class="n">${fmt(amount(d)-(d.paid||0))}</td></tr>`;}
-  const combo=d.kind==='SO'&&!d.xfer;
+    if(d.kind==='SO'&&!d.xfer&&!quote)foot+=`<tr><td colspan="6">已收</td><td class="n">${fmt(d.paid)}</td></tr><tr><td colspan="6">未收</td><td class="n">${fmt(amount(d)-(d.paid||0))}</td></tr>`;}
+  const combo=d.kind==='SO'&&!d.xfer&&!quote;
   return `<div class="paper a4${combo?' combo':''}">
     <div class="ph"><div><div class="co"><b>${COMPANY.name}</b><br><span style="font-size:.85em;color:#555">${COMPANY.line}</span></div><h3>${k.name}</h3></div><div class="mono" style="color:var(--paper-ink)">${d.no}</div></div>
     <div class="meta">${d.kind==='EX'?`<div><span>${k.party}：</span>${esc(d.party)}</div><div><span>日期：</span>${d.date}</div>${d.ev&&(d.ev.link||d.ev.note)?`<div style="grid-column:1/-1;white-space:pre-wrap;word-break:break-all"><span>活動細節：</span>${esc([d.ev.link,d.ev.note].filter(Boolean).join('\n'))}</div>`:''}`:`<div><span>日期：</span>${d.date}</div><div><span>${k.party}：</span>${esc(d.party)}</div>`}${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>${TAKER[d.kind]||'開單人員'}：</span>${esc(d.taker)}</div>`:''}${d.pays&&d.pays.length?`<div><span>收款方式：</span>${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
@@ -1115,14 +1116,16 @@ function receiptHTML(d){
 // 列印存成 PDF 時，瀏覽器用網頁標題當檔名：YYYYMMDD銷貨單-客戶
 const PRINT_NAME={SO:'銷貨單',PO:'採購單',MO:'生產單',EX:'外展單'};
 function printTitle(){const bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no);if(!d||$('#overlay').hidden)return;
-  document.title=((d.date||'').replace(/-/g,'')+(d.xfer?'調撥單':PRINT_NAME[d.kind]||'單據')+(d.party?'-'+d.party:'')).replace(/[\\/:*?"<>|]/g,'_')}
+  document.title=((d.date||'').replace(/-/g,'')+(quoteMode?'估價報價單':d.xfer?'調撥單':PRINT_NAME[d.kind]||'單據')+(d.party?'-'+d.party:'')).replace(/[\\/:*?"<>|]/g,'_')}
 window.addEventListener('beforeprint',printTitle);
-window.addEventListener('afterprint',()=>{document.title='小團隊進銷存'});
+let quoteMode=false;
+window.addEventListener('afterprint',()=>{document.title='小團隊進銷存';if(quoteMode){quoteMode=false;const bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no),pp=$('#overlay .paper');if(d&&pp)pp.outerHTML=paperHTML(d)}});
 function closeDoc(){$('#overlay').hidden=true;$('#overlay').innerHTML='';document.body.style.overflow=''}
 $('#overlay').addEventListener('click',e=>{
   const bar=$('.sheetbar');const d=bar&&S.docs.find(x=>x.no===bar.dataset.no);
   if(e.target.id==='overlay'||e.target.id==='closeDoc'){closeDoc();return}
   if(e.target.id==='printDoc'){printTitle();window.print();return}
+  if(e.target.id==='printQuote'){const pp=$('#overlay .paper');if(!pp)return;quoteMode=true;pp.outerHTML=paperHTML(d,true);printTitle();window.print();return}
   if(!d)return;
   if(e.target.id==='editDoc'){if(!can('edit'))return;const no=d.no,kd=d.kind;closeDoc();editing=no;formOpen=true;page=kd;try{localStorage.setItem(KEY+'-page',kd)}catch(x){}renderTabs();render();return}
   if(e.target.id==='delDoc'){if(!can('del'))return;if(!delArm){delArm=true;e.target.textContent='再按一次確認刪除';return}
