@@ -327,7 +327,7 @@ function migrate(){S.docs.forEach(d=>{if(!FLOW[d.kind]||d.steps)return;const F=F
 const PERMS=[['edit','修改單據（會留下修改紀錄）'],['del','刪除單據'],['back','退回流程步驟'],['items','新增、修改品項（價格、期初、安全庫存、匯入）'],['bom','設定 BOM'],['contactAdd','新增顧客／廠商'],['contactEdit','修改既有的顧客／廠商資料'],['data','重設資料、還原備份']];
 function hashPw(t){let h=5381;for(const c of 'erp|'+t)h=((h<<5)+h+c.codePointAt(0))>>>0;return 'h'+h.toString(36)+t.length}
 let role='admin';
-function can(k){return role==='admin'||!!(S.perm&&S.perm.staff[k])}
+function can(k){return role==='admin'||role!=='ex'&&!!(S.perm&&S.perm.staff[k])}
 const COMPANY={name:'觀心園愛心庇護工場',line:'南投縣草屯鎮中正路557之55號　TEL：049-2561763　E-mail：ksy20250101@gmail.com'};
 /* ---------- 線上同步：資料存在雲端，大家共用 ---------- */
 // Each item, document, customer, vendor and audit entry is one cloud document; everything else (BOM, permissions, flags) lives in erp/meta.
@@ -512,12 +512,13 @@ function stock(){
 }
 
 function renderTabs(){
-  $('#tabs').innerHTML=PAGES.concat(can('items')?[['count','盤點重設']]:[]).concat(role==='admin'?[['perm','權限設定']]:[]).map(([k,t])=>`<button type="button" data-p="${k}" ${k===page?'aria-current="page"':''}>${t}${k==='todo'&&ready&&S.docs?(n=>n?` <span class="pill bad">${n}</span>`:'')(todoCount()):''}</button>`).join('');
+  $('#tabs').innerHTML=(role==='ex'?[['EX','外展清點']]:PAGES.concat(can('items')?[['count','盤點重設']]:[]).concat(role==='admin'?[['perm','權限設定']]:[])).map(([k,t])=>`<button type="button" data-p="${k}" ${k===page?'aria-current="page"':''}>${t}${k==='todo'&&ready&&S.docs?(n=>n?` <span class="pill bad">${n}</span>`:'')(todoCount()):''}</button>`).join('');
 }
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button[data-p]');if(!b)return;go(b.dataset.p)});
-function go(p){page=p;editing=null;editItem=null;try{localStorage.setItem(KEY+'-page',p)}catch(e){}renderTabs();render();window.scrollTo(0,0)}
+function go(p){if(role==='ex')p='EX';page=p;editing=null;editItem=null;try{localStorage.setItem(KEY+'-page',p)}catch(e){}renderTabs();render();window.scrollTo(0,0)}
 
 function render(){
+  if(role==='ex'){page='EX';formOpen=false;editing=null}
   renderDatalists();
   const m=$('#main');
   if(ready&&!S.items.length){m.innerHTML='<p class="empty">雲端還沒有資料。請按上方「還原備份」，選擇備份檔（.json）匯入。</p>';return}
@@ -638,7 +639,7 @@ function kindHTML(kind){
     return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
   const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'')+(kind==='SO'?linesBlock(kind,'sell','gift','贈品（不算金額、不印在收據上，但會扣庫存）'):'');
   return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶或調撥到其他地點時填一張，收款可以分次登記。'}[kind]}</p></div>
-    <button type="button" class="btn primary" id="toggleForm">${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
+    <button type="button" class="btn primary" id="toggleForm" ${role==='ex'?'hidden':''}>${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
   <form class="panel" id="docForm" data-kind="${kind}" ${formOpen?'':'hidden'}>
     <div class="grid-f">
       <label class="f">${editing?'修改單號':'單號（自動）'}<input id="f-no" value="${editing||nextNo(kind,today())}" disabled></label>
@@ -1431,7 +1432,7 @@ document.addEventListener('change',e=>{if(e.target.id!=='recodeFile')return;cons
     if(!confirm(`要套用「${R.version||f.name}」嗎？\n共 ${R.items.length} 個品項、停用 ${(R.stop||[]).length} 個、BOM ${Object.keys(R.bom||{}).length} 項。\n現有 BOM 會被檔案裡的 BOM 取代。按確定後會先下載一份備份。`))return;
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));a.download='進銷存備份-套用編碼前-'+today()+'.json';document.body.appendChild(a);a.click();a.remove();
     applyRecode(R)};rd.readAsText(f)});
-$('#backup').addEventListener('click',async()=>{
+$('#backup').addEventListener('click',async()=>{if(role==='ex')return;
   const dl=window.claude&&await window.claude.use('downloads');
   if(dl){try{const r=await dl.save({filename:'進銷存備份-'+today()+'.json',data:JSON.stringify(S,null,1)});if(r&&r.status==='saved')toast('已下載備份檔')}catch(e){if(e&&e.code!=='cancelled')toast('沒有下載備份檔')}return}
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S,null,1)],{type:'application/json'}));
@@ -1540,6 +1541,13 @@ function permHTML(){
     <div><button type="submit" class="btn primary">存檔密碼</button></div>
     <p class="hint">這是單機檔案的權限，用來避免誤刪誤改；懂電腦的人還是可以繞過，所以請記得定期備份。</p>
   </form>
+  <form class="panel" id="spinForm">
+    <p class="sub">${S.perm.staffPin?'更改一般人員密碼':'設定一般人員密碼'}</p>
+    <p class="hint">「外展清點」模式（平板用，只能登記外展歸還）要切回一般人員時輸入。沒設定的話，只能用管理者密碼切回。</p>
+    <div class="grid-f"><label class="f">新密碼<input id="spin1" type="password" autocomplete="new-password"></label><label class="f">再輸入一次<input id="spin2" type="password" autocomplete="new-password"></label></div>
+    <p class="err" id="spinErr"></p>
+    <div><button type="submit" class="btn primary">存檔密碼</button></div>
+  </form>
   <section class="panel"><p class="sub" style="margin:0">匯入單據檔</p><p class="hint">補登舊系統的單據用（例如「銷貨補登-*.json」）。單號已經存在的會跳過，不會重複。</p>
     <div class="row"><button type="button" class="btn" id="docImpBtn">選擇檔案並匯入</button><input type="file" id="docImpFile" accept=".json,application/json" hidden></div></section>
   <section class="panel"><p class="sub" style="margin:0">所有單據的修改與刪除紀錄</p>
@@ -1593,6 +1601,10 @@ document.addEventListener('submit',async e=>{if(e.target.id!=='memberForm')retur
   try{await jxcAuth.addMember(em);$('#memberEmail').value='';toast('已加入 '+em);loadMembers()}catch(err){toast('加入失敗：只有擁有者可以修改名單')}});
 document.addEventListener('submit',e=>{
   if(e.target.id==='permForm'){e.preventDefault();if(role!=='admin')return;PERMS.forEach(([k])=>S.perm.staff[k]=$('#pm-'+k).checked);save();toast('已存檔權限');return}
+  if(e.target.id==='spinForm'){e.preventDefault();if(role!=='admin')return;const a=$('#spin1').value,b=$('#spin2').value;
+    if(!a){$('#spinErr').textContent='請輸入密碼。';return}if(a!==b){$('#spinErr').textContent='兩次輸入的密碼不一樣。';return}
+    if(hashPw(a)===S.perm.pin){$('#spinErr').textContent='請不要跟管理者密碼一樣。';return}
+    S.perm.staffPin=hashPw(a);save();render();toast('已存檔一般人員密碼');return}
   if(e.target.id==='pinForm'){e.preventDefault();if(role!=='admin')return;const a=$('#pin1').value,b=$('#pin2').value;
     if(a.length<4){$('#pinErr').textContent='密碼至少 4 個字。';return}if(a!==b){$('#pinErr').textContent='兩次輸入的密碼不一樣。';return}
     S.perm.pin=hashPw(a);save();setRole('admin');toast('已存檔管理者密碼')}
@@ -1636,22 +1648,26 @@ let resetArm=false;
 $('#reset').addEventListener('click',e=>{if(!can('data'))return;if(!resetArm){resetArm=true;e.target.textContent='再按一次確認重設';setTimeout(()=>{resetArm=false;e.target.textContent='重設為初始資料'},3000);return}
   resetArm=false;e.target.textContent='重設為初始資料';toast('線上版不提供重設')});
 
-function setRole(r){role=r;try{sessionStorage.setItem('erp-role',r)}catch(e){}renderRole();if(!can('items')&&page==='perm')page='home';renderTabs();render()}
+function setRole(r){role=r;try{sessionStorage.setItem('erp-role',r);if(r==='ex')localStorage.setItem(KEY+'-exmode','1');else localStorage.removeItem(KEY+'-exmode')}catch(e){}if(r==='ex'){page='EX';closeDoc()}renderRole();if(!can('items')&&page==='perm')page='home';renderTabs();render()}
 function renderRole(){
   const box=$('#roleBox');
   box.innerHTML=!S.perm.pin?'<button type="button" class="link" id="goPerm">設定管理者密碼</button>':
-    `身分：<b>${role==='admin'?'管理者':'一般人員'}</b> <button type="button" class="link" id="${role==='admin'?'toStaff':'toAdmin'}">${role==='admin'?'切換成一般人員':'切換成管理者'}</button>`;
-  $('#reset').hidden=true;$('#restoreBtn').hidden=!can('data');
+    role==='ex'?'身分：<b>外展清點</b> <button type="button" class="link" id="toAdmin">輸入密碼切換</button>':
+    `身分：<b>${role==='admin'?'管理者':'一般人員'}</b> <button type="button" class="link" id="${role==='admin'?'toStaff':'toAdmin'}">${role==='admin'?'切換成一般人員':'切換成管理者'}</button> <button type="button" class="link" id="toEx" title="平板用：只能看外展單、登記歸還清點">切換成外展清點</button>`;
+  $('#reset').hidden=true;$('#restoreBtn').hidden=!can('data');$('#backup').hidden=role==='ex';
 }
 document.addEventListener('click',e=>{
   if(e.target.id==='goPerm'){go('perm');return}
   if(e.target.id==='toStaff'){setRole('staff');toast('已切換成一般人員');return}
+  if(e.target.id==='toEx'){if(!confirm('切換成「外展清點」？\n\n只能看外展單、登記歸還的數量。這台裝置之後打開都會停在這個模式，要輸入密碼才能切回來。'))return;setRole('ex');toast('已切換成外展清點');return}
   if(e.target.id==='toAdmin'){
-    $('#overlay').innerHTML=`<form class="sheetbar" id="pwForm" style="max-width:360px;margin-top:10vh"><p class="sub">輸入管理者密碼</p><input id="pwIn" type="password" autocomplete="current-password"><p class="err" id="pwErr"></p><div class="row"><button type="submit" class="btn primary">切換成管理者</button><button type="button" class="btn" id="closeDoc">取消</button></div></form>`;
+    $('#overlay').innerHTML=`<form class="sheetbar" id="pwForm" style="max-width:360px;margin-top:10vh"><p class="sub">${role==='ex'?'輸入一般人員或管理者密碼':'輸入管理者密碼'}</p><input id="pwIn" type="password" autocomplete="current-password"><p class="err" id="pwErr"></p><div class="row"><button type="submit" class="btn primary">切換成管理者</button><button type="button" class="btn" id="closeDoc">取消</button></div></form>`;
     $('#overlay').hidden=false;$('#pwIn').focus();return}
 });
 document.addEventListener('submit',e=>{if(e.target.id!=='pwForm')return;e.preventDefault();
-  if(hashPw($('#pwIn').value)===S.perm.pin){closeDoc();setRole('admin');toast('已切換成管理者')}else $('#pwErr').textContent='密碼不對，請再試一次。'});
+  const h=hashPw($('#pwIn').value);
+  if(h===S.perm.pin){closeDoc();setRole('admin');toast('已切換成管理者')}
+  else if(role==='ex'&&S.perm.staffPin&&h===S.perm.staffPin){closeDoc();setRole('staff');toast('已切換成一般人員')}else $('#pwErr').textContent='密碼不對，請再試一次。'});
 
 /* ---------- 盤點重設 ---------- */
 let countDate='';
@@ -1693,6 +1709,8 @@ if(!S.perm)S.perm={pin:'',staff:{edit:false,del:false,back:false,items:false,bom
 try{role=sessionStorage.getItem('erp-role')||''}catch(e){role=''}
 if(role!=='admin'&&role!=='staff')role=S.perm.pin?'staff':'admin';
 if(!S.perm.pin)role='admin';
+try{if(S.perm.pin&&localStorage.getItem(KEY+'-exmode')==='1')role='ex'}catch(e){}
+if(role==='ex')page='EX';
 if(!S.audit)S.audit=[];
 migrate();save();
 renderRole();renderTabs();render();
