@@ -152,6 +152,12 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
   .paper.combo th,.paper.combo td{padding:2px 6px}
   .paper.combo .rcpt{break-inside:avoid}
 }
+.photosheet .pimgs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.photosheet .pimgs.one{grid-template-columns:1fr}
+.photosheet figure{margin:0;break-inside:avoid;text-align:center}
+.photosheet img{width:100%;max-height:115mm;object-fit:contain;display:block;margin:0 auto}
+.photosheet .pimgs.one img{max-height:200mm}
+.photosheet figcaption{font-size:.8em;color:#666}
 /* 銷貨出貨單＋收據 合併在同一張 A4：上半出貨單、下半收據 */
 .paper.combo{gap:10px}
 .paper.combo .sign div{height:3.6em}
@@ -967,7 +973,14 @@ async function getPhotos(pk){if(PH[pk])return PH[pk];try{const s=await db.doc('p
 function thumbs(list,rm){return list.map((src,i)=>`<figure><img src="${src}" alt="成品照片 ${i+1}" data-zoom>${rm?`<button type="button" class="x" ${rm}="${i}" aria-label="移除這張照片">✕</button>`:''}</figure>`).join('')}
 function customPanel(d){return `<div class="custom"><b>客訂單</b>${d.spec?`<div class="spec">${esc(d.spec)}</div>`:''}
   <div class="photos" id="docPhotos"><span class="hint">照片讀取中⋯</span></div>
-  <div><label class="btn small">＋ 新增照片<input type="file" id="addPhoto" accept="image/*" multiple hidden></label></div></div>`}
+  <div class="row"><label class="btn small">＋ 新增照片<input type="file" id="addPhoto" accept="image/*" multiple hidden></label><button type="button" class="btn small" id="printPhotos">列印客訂說明與照片</button></div></div>`}
+function photoPaperHTML(d,list){
+  return `<div class="paper a4 photosheet">
+    <div class="ph"><div><div class="co"><b>${COMPANY.name}</b></div><h3>客訂說明與照片</h3></div><div class="mono" style="color:var(--paper-ink)">${d.no}</div></div>
+    <div class="meta"><div><span>日期：</span>${d.date}</div><div><span>客戶：</span>${esc(d.party)}</div>${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>開單人員：</span>${esc(d.taker)}</div>`:''}</div>
+    ${d.spec?`<div style="white-space:pre-wrap;border:1px solid var(--paper-ink);padding:6px 8px"><b>客訂說明：</b>${esc(d.spec)}</div>`:''}
+    ${list.length?`<div class="pimgs ${list.length===1?'one':''}">${list.map((src,i)=>`<figure><img src="${src}" alt="照片 ${i+1}"><figcaption>${i+1}</figcaption></figure>`).join('')}</div>`:'<p>（沒有照片）</p>'}
+  </div>`}
 async function showPhotos(d){const list=await getPhotos(d.pk);const box=$('#docPhotos');if(!box)return;
   box.innerHTML=list.length?thumbs(list,can('edit')?'data-rmphoto':''):'<span class="hint">還沒有照片。</span>'}
 function curDoc(){const bar=$('.sheetbar');return bar&&S.docs.find(x=>x.no===bar.dataset.no)}
@@ -1116,15 +1129,17 @@ function receiptHTML(d){
 // 列印存成 PDF 時，瀏覽器用網頁標題當檔名：YYYYMMDD銷貨單-客戶
 const PRINT_NAME={SO:'銷貨單',PO:'採購單',MO:'生產單',EX:'外展單'};
 function printTitle(){const bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no);if(!d||$('#overlay').hidden)return;
-  document.title=((d.date||'').replace(/-/g,'')+(quoteMode?'估價報價單':d.xfer?'調撥單':PRINT_NAME[d.kind]||'單據')+(d.party?'-'+d.party:'')).replace(/[\\/:*?"<>|]/g,'_')}
+  document.title=((d.date||'').replace(/-/g,'')+(quoteMode==='photo'?'客訂照片':quoteMode?'估價報價單':d.xfer?'調撥單':PRINT_NAME[d.kind]||'單據')+(d.party?'-'+d.party:'')).replace(/[\\/:*?"<>|]/g,'_')}
 window.addEventListener('beforeprint',printTitle);
 let quoteMode=false;
 window.addEventListener('afterprint',()=>{document.title='小團隊進銷存';if(quoteMode){quoteMode=false;const bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no),pp=$('#overlay .paper');if(d&&pp)pp.outerHTML=paperHTML(d)}});
 function closeDoc(){$('#overlay').hidden=true;$('#overlay').innerHTML='';document.body.style.overflow=''}
-$('#overlay').addEventListener('click',e=>{
+$('#overlay').addEventListener('click',async e=>{
   const bar=$('.sheetbar');const d=bar&&S.docs.find(x=>x.no===bar.dataset.no);
   if(e.target.id==='overlay'||e.target.id==='closeDoc'){closeDoc();return}
   if(e.target.id==='printDoc'){printTitle();window.print();return}
+  if(e.target.id==='printPhotos'){const pp=$('#overlay .paper');if(!pp||!d)return;const list=await getPhotos(d.pk);quoteMode='photo';$('#overlay .paper').outerHTML=photoPaperHTML(d,list);
+    await Promise.all([...document.querySelectorAll('#overlay .photosheet img')].map(im=>im.complete?0:new Promise(r=>{im.onload=im.onerror=r})));printTitle();window.print();return}
   if(e.target.id==='printQuote'){const pp=$('#overlay .paper');if(!pp)return;quoteMode=true;pp.outerHTML=paperHTML(d,true);printTitle();window.print();return}
   if(!d)return;
   if(e.target.id==='editDoc'){if(!can('edit'))return;const no=d.no,kd=d.kind;closeDoc();editing=no;formOpen=true;page=kd;try{localStorage.setItem(KEY+'-page',kd)}catch(x){}renderTabs();render();return}
