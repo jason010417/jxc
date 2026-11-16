@@ -1,9 +1,5 @@
 {
   "rules": {
-    "erp": {
-      ".read": true,
-      ".write": true
-    },
     "jxc": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email.toLowerCase() == 'jason010417@gmail.com' || root.child('jxcMembers').child(auth.token.email.toLowerCase().replace('.', ',')).val() == true)",
       ".write": "auth != null && auth.token.email_verified == true && (auth.token.email.toLowerCase() == 'jason010417@gmail.com' || root.child('jxcMembers').child(auth.token.email.toLowerCase().replace('.', ',')).val() == true)"

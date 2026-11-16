@@ -292,6 +292,12 @@ const FIREBASE_CONFIG={
     if(!ok){gate('<h2>還不能使用</h2><p class="lead">'+esc2(u.email)+' 還沒有被加入使用名單。請管理者在「權限設定」加入這個帳號，然後重新整理頁面。</p><button type="button" class="btn" id="signOut">換一個帳號</button>');return}
     opened=true;resolveDb(db);
   });
+  // 舊系統（erp-app）在資料庫根目錄的 erp/，與本系統的 jxc/ 無關
+  window.jxcOld={
+    get:async()=>(await fdb.ref('erp').get()).val(),
+    backup:async v=>fdb.ref('jxc/oldErpBackup').set({j:JSON.stringify(v),at:new Date().toISOString()}),
+    hasBackup:async()=>{const s=await fdb.ref('jxc/oldErpBackup/at').get();return s.val()},
+    remove:async()=>fdb.ref('erp').remove()};
 })();
 </script>
 <script>
@@ -1534,6 +1540,9 @@ function permHTML(){
     <ul id="memberList" style="margin:0;padding-left:20px"><li class="hint">讀取中…</li></ul>
     <form class="row" id="memberForm"><input id="memberEmail" type="email" placeholder="例如：someone@gmail.com" style="max-width:280px"><button type="submit" class="btn primary">加入</button></form>
   </section>
+  ${window.jxcAuth&&jxcAuth.isOwner()?`<section class="panel" id="oldErpPanel"><p class="sub" style="margin:0">舊系統資料（erp-app）</p>
+    <p class="hint">舊系統的資料放在資料庫的 erp/，目前任何人都讀得到、改得到。按下面的按鈕會：① 下載一份備份檔到這台電腦；② 在需要登入的雲端也存一份（jxc/oldErpBackup）；③ 刪除公開的 erp/。本系統的資料不受影響。</p>
+    <div class="row"><button type="button" class="btn danger" id="oldErpDel">備份並刪除舊系統資料</button><span class="hint" id="oldErpMsg"></span></div></section>`:''}
   <section class="panel" id="stampPanel">
     <p class="sub" style="margin:0">收據印章</p>
     <p class="hint">上傳後，每張收據都會自動印上。印章只存在需要登入的雲端資料裡，不會放在公開的網站檔案中。建議用去背的 PNG 圖檔。</p>
@@ -1562,6 +1571,19 @@ function permHTML(){
 }
 // 匯入單據檔 {kind:'jxc-docs',docs:[...]}：品項先用內部 id 對，對不到再用料號對；單號重複就跳過。
 document.addEventListener('click',e=>{if(e.target.id==='docImpBtn'&&role==='admin')$('#docImpFile').click()});
+document.addEventListener('click',async e=>{if(e.target.id!=='oldErpDel'||!window.jxcOld||!jxcAuth.isOwner())return;const msg=$('#oldErpMsg'),btn=e.target;
+  try{btn.disabled=true;msg.textContent='讀取舊資料中…';const v=await jxcOld.get();
+    if(v==null){msg.textContent='erp/ 已經是空的，不用刪。';return}
+    const txt=JSON.stringify(v,null,1),kb=Math.round(txt.length/1024);
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'application/json'}));a.download='old-erp-backup-'+today().replace(/-/g,'')+'.json';document.body.appendChild(a);a.click();a.remove();
+    msg.textContent='已下載備份（約 '+kb+' KB），雲端備份中…';await jxcOld.backup(v);
+    const ok=await jxcOld.hasBackup();if(!ok){msg.textContent='雲端備份沒有成功，先不刪除。';return}
+    if(!confirm('備份檔已下載（約 '+kb+' KB），雲端也存了一份。\n\n確定刪除公開的舊系統資料 erp/ 嗎？本系統資料不受影響。'))
+      {msg.textContent='已備份，尚未刪除。';return}
+    await jxcOld.remove();const left=await jxcOld.get();
+    const fin=left==null?'已刪除舊系統資料 erp/。備份檔在下載資料夾，雲端備份在 jxc/oldErpBackup。':'刪除沒有完成，請再試一次。';msg.textContent=fin;toast(fin);
+    S.audit.unshift({no:'系統',action:'刪除',at:new Date().toLocaleString('zh-TW',{hour12:false}),by:'管理者',reason:'刪除舊系統公開資料 erp/（已備份）',changes:['約 '+kb+' KB']});save()}
+  catch(x){msg.textContent='失敗：'+(x&&x.message||x)}finally{btn.disabled=false}});
 document.addEventListener('change',e=>{if(e.target.id!=='docImpFile')return;const f=e.target.files[0];e.target.value='';if(!f||role!=='admin')return;
   const rd=new FileReader();rd.onload=()=>{let R;try{R=JSON.parse(rd.result);if(R.kind!=='jxc-docs'||!Array.isArray(R.docs))throw 0}catch(x){toast('這個檔案不是單據匯入檔');return}
     const have=new Set(S.docs.map(d=>d.no)),add=[],skip=[],bad=[];
