@@ -658,6 +658,7 @@ function kindHTML(kind){
       ${linesBlock('SO','all','mat','客製用料（實際用掉的成品、半成品、包材、標籤；不算金額、不印收據，出貨後扣庫存）')}
       ${editing?'<p class="hint">照片請在單據畫面新增或移除。</p>':'<label class="f">成品參考照片（可一次選多張，手機可直接拍照）<input type="file" id="f-photos" accept="image/*" multiple></label><div class="photos" id="f-prev"></div>'}</div>`:''}
     ${body}
+    ${kind==='SO'||kind==='PO'?`<div class="grid-f"><label class="f">運費（可留空）<input id="f-fee" type="number" min="0" step="any" inputmode="decimal"></label><label class="f">折扣優惠金額（填正數，會從合計扣掉）<input id="f-disc" type="number" min="0" step="any" inputmode="decimal" placeholder="例如：100"></label></div>`:''}
     <p class="err" id="f-err"></p>
     <div class="row"><button type="submit" class="btn primary">存檔並查看 A4 單據</button><span class="hint">存檔後庫存總表會馬上更新</span></div>
   </form>
@@ -718,6 +719,7 @@ document.addEventListener('submit',e=>{
   if(cuOn)document.querySelectorAll('#cuLines .cuo').forEach(r=>{const n=r.querySelector('.cn').value.trim(),q=+r.querySelector('.cq').value;if(n&&q>0)lines.push({other:true,name:n,qty:q,price:+r.querySelector('.cp').value||0})});
   if(!exv)e.target.querySelectorAll('.line:not(.cuo)').forEach(r=>{if(!cuOn&&r.closest('#customBox'))return;const it=r.querySelector('.li').value,q=+r.querySelector('.lq').value;const p=r.querySelector('.lp');
     if(it&&q>0){const l={item:it,qty:q};if(p)l.price=+p.value||0;if(r.dataset.dir)l.dir=r.dataset.dir;if(kind==='EX')l.ret=0;lines.push(l)}});
+  const fv=$('#f-fee')?{fee:+$('#f-fee').value||0,discount:-Math.abs(+$('#f-disc').value||0)}:null;
   if(!lines.length){err.textContent=kind==='EX'?'至少要填一項帶出的成品或其它品項的數量。':'至少要有一列選了品項、填了數量。';return}
   if(kind==='MO'&&!lines.some(l=>l.dir==='out')){err.textContent='請填完工的成品數量。';return}
   if(editing){const d=S.docs.find(x=>x.no===editing);if(!d||!can('edit'))return;
@@ -736,6 +738,8 @@ document.addEventListener('submit',e=>{
     if(tk!=null&&(d.taker||'')!==tk)ch.push(`${TAKER[kind]}：${d.taker||'—'} → ${tk||'—'}`);
     if(av&&arrText(d)!==arrText(av))ch.push(`到貨期間：${arrText(d)||'—'} → ${arrText(av)||'—'}`);
     if(cu&&(!!d.custom!==cu.custom||(d.spec||'')!==cu.spec))ch.push(`客訂：${d.custom?'是':'否'}${d.spec?'（'+d.spec+'）':''} → ${cu.custom?'是':'否'}${cu.spec?'（'+cu.spec+'）':''}`);
+    if(fv&&(d.fee||0)!==fv.fee)ch.push(`運費：${fmt(d.fee||0)} → ${fmt(fv.fee)}`);
+    if(fv&&(d.discount||0)!==fv.discount)ch.push(`折扣：${fmt(-(d.discount||0))} → ${fmt(-fv.discount)}`);
     if(!ch.length){err.textContent='沒有任何變更。';return}
     const entry={at:new Date().toLocaleString('zh-TW',{hour12:false}),by,reason:$('#f-reason').value.trim(),changes:ch};
     (d.log=d.log||[]).push(entry);S.audit.unshift({no:d.no,action:'修改',...entry});
@@ -744,10 +748,11 @@ document.addEventListener('submit',e=>{
     if(exv){exv.equip.forEach(q=>{const o=(d.equip||[]).find(x=>eqLabel(x)===eqLabel(q));if(o&&o.back)q.back=true;if(o&&o.out)q.out=true});d.ev=exv.ev;d.equip=exv.equip;if(exv.daily)d.daily=true;else delete d.daily}
     if(tk!=null){if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk}
     if(rd!=null){if(rd)d.rdate=rd;else delete d.rdate}
+    if(fv){if(fv.fee)d.fee=fv.fee;else delete d.fee;if(fv.discount)d.discount=fv.discount;else delete d.discount}
     if(av){if(av.arr)d.arr=av.arr;else delete d.arr;if(av.arr2)d.arr2=av.arr2;else delete d.arr2}
     if(cu){if(cu.custom){d.custom=true;d.spec=cu.spec;if(!d.pk)d.pk=newKey('p')}else{delete d.custom;delete d.spec}}
     save();const no=d.no;editing=null;formOpen=false;exDaily=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
-  const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};
+  const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};if(fv){if(fv.fee)doc.fee=fv.fee;if(fv.discount)doc.discount=fv.discount}
   if(kind==='SO'){doc.paid=0;const rd=rdateVal(date);if(rd)doc.rdate=rd;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2;
     if($('#f-type').value==='xfer')doc.xfer=true}
   if(TAKER[kind]){const tk=$('#f-taker').value.trim();if(tk)doc.taker=tk}
@@ -987,6 +992,7 @@ function fillEdit(){
     d.lines.forEach(l=>{if(l.other)return;const x=$(`.exq[data-item="${l.item}"]`);if(x)x.value=l.qty});exNum();
     const os=d.lines.filter(l=>l.other);if(os.length)$('#exOther').innerHTML=os.map(otherRow).join('')}
   if($('#f-rdate')){$('#f-rdate').value=d.rdate||d.date;if(d.rdate)$('#f-rdate').dataset.touched='1'}
+  if($('#f-fee')){$('#f-fee').value=d.fee||'';$('#f-disc').value=d.discount?-d.discount:''}
   if($('#f-arr1')){$('#f-arr1').value=d.arr||'';$('#f-arr2').value=d.arr2||''}
   if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom;const cs=d.lines.filter(l=>l.other);if(cs.length)$('#cuLines').innerHTML=cs.map(cuRow).join('')}
   const names=[...new Set(S.docs.flatMap(x=>(x.log||[]).map(g=>g.by).concat((x.steps||[]).map(s=>s.by))).filter(Boolean))];
