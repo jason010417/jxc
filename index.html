@@ -112,6 +112,7 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
 #exOther,#cuLines{counter-reset:ln}
 #cuLines{display:flex;flex-direction:column;gap:8px}
 .lcap::before{counter-increment:ln;content:counter(ln) '. ';color:var(--accent);font-weight:600;font-size:14px}
+.xloc[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
 .exn{color:var(--accent);font-weight:600;width:2.5em}
 .line{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end}
 .line.noprice{grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) auto}
@@ -884,7 +885,14 @@ document.addEventListener('click',e=>{
 /* ---------- 客訂與成品照片 ---------- */
 // 照片另外存在雲端 jxc/photos/<單據的 pk>，打開單據時才讀，不放進備份檔。
 let formPhotos=[];const PH={};
-function typeUI(){const x=$('#f-type')&&$('#f-type').value==='xfer';const l=$('#f-partyLbl');if(l)l.textContent=x?'調撥到（地點）':KINDS.SO.party;if(x&&$('#partyInfo'))$('#partyInfo').hidden=true}
+const STORES=['草屯門市','南投國道門市','樹德門市','埔里酒廠門市'];
+const xferLocs=()=>[...new Set([...STORES,...S.docs.filter(d=>d.kind==='SO'&&d.xfer).map(d=>d.party).filter(p=>p&&p!=='—')])];
+function typeUI(){const x=$('#f-type')&&$('#f-type').value==='xfer';const l=$('#f-partyLbl');if(l)l.textContent=x?'調撥到（地點）':KINDS.SO.party;if(x&&$('#partyInfo'))$('#partyInfo').hidden=true;
+  const f=$('#f-party');if(!f)return;let dl=$('#f-xlocs');if(!dl){f.insertAdjacentHTML('afterend','<datalist id="f-xlocs"></datalist>');dl=$('#f-xlocs')}
+  dl.innerHTML=xferLocs().map(p=>`<option value="${esc(p)}">`).join('');f.setAttribute('list',x?'f-xlocs':'f-parties');f.placeholder=x?'點下面的地點，或自己輸入':'打字會從顧客資料提示';
+  let chips=$('#xferChips');if(x&&!chips){f.closest('label').insertAdjacentHTML('afterend','<div id="xferChips" class="row" style="grid-column:1/-1;gap:6px;flex-wrap:wrap"></div>');chips=$('#xferChips')}
+  if(chips){chips.hidden=!x;chips.innerHTML='<span class="hint">調撥到：</span>'+xferLocs().map(p=>`<button type="button" class="btn small xloc" aria-pressed="${f.value===p}">${esc(p)}</button>`).join('')}}
+document.addEventListener('click',e=>{const b=e.target.closest('.xloc');if(!b)return;$('#f-party').value=b.textContent;document.querySelectorAll('.xloc').forEach(x=>x.setAttribute('aria-pressed',x===b))});
 document.addEventListener('change',e=>{if(e.target.id==='f-type'){typeUI();if(e.target.value!=='xfer')showPartyInfo()}});
 function payPanel(d){
   const po=d.kind==='PO';if(!(d.kind==='SO'&&!d.xfer)&&!po)return '';
