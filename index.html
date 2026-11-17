@@ -327,6 +327,9 @@ const FLOW={
 };
 // 調撥單是銷貨單的一種（d.xfer）：一樣出貨扣庫存，但不算營收、不收款，最後一步是到貨確認。
 const flowOf=d=>d.xfer?FLOW.XF:FLOW[d.kind];
+// 庫存總表＝倉庫（工廠）的數量。調撥：倉庫→門市 扣庫存；門市→倉庫 加回；門市→門市 不影響倉庫。
+const WH='倉庫';
+const soSign=d=>!d.xfer||(d.from||WH)===WH?-1:d.party===WH?1:0;
 const PAY_METHODS=['現金','匯款','支票','LINE Pay','刷卡','其他'];
 const STOCK_AT={PO:2,SO:3};
 const stepN=d=>flowOf(d)?(d.steps||[]).length:0;
@@ -508,7 +511,7 @@ function stockUntil(to,from){
   S.docs.forEach(d=>{if(!counts(d))return;const dt=effDate(d);if(to&&dt>to)return;const inR=!from||dt>=from;const inBal=!useBase||dt>=S.count.date;
     d.lines.forEach(l=>{const r=m[l.item];if(!r)return;let a=0,b=0;
       if(d.kind==='PO')a=lq(d,l);else if(d.kind==='MO'){if(l.dir==='use')b=l.qty;else a=l.qty}
-      else if(d.kind==='EX'){b=l.qty;a=l.ret||0}else if(d.kind==='SO')b=l.qty;
+      else if(d.kind==='EX'){b=l.qty;a=l.ret||0}else if(d.kind==='SO'){const g=soSign(d);if(g<0)b=l.qty;else if(g>0)a=l.qty}
       if(inBal)r.bal+=a-b;if(inR){if(d.kind==='EX')r.out+=b-a;else{r.in+=a;r.out+=b}}})});
   return m;
 }
@@ -519,7 +522,7 @@ function stock(){
     if(d.kind==='PO')r.po+=lq(d,l);
     else if(d.kind==='MO'){if(l.dir==='use')r.use+=l.qty;else r.made+=l.qty}
     else if(d.kind==='EX'){r.exOut+=l.qty;r.exRet+=l.ret||0}
-    else if(d.kind==='SO')r.so+=l.qty;})});
+    else if(d.kind==='SO')r.so-=soSign(d)*l.qty;})});
   Object.values(m).forEach(r=>r.cur=r.open+r.po-r.use+r.made-r.exOut+r.exRet-r.so);
   return m;
 }
@@ -649,7 +652,7 @@ function kindHTML(kind){
   const head=`<tr><th>單號</th>${FLOW[kind]?'<th>流程進度</th>':''}${kind==='SO'?'<th>收款</th>':kind==='PO'?'<th>付款</th>':''}<th>日期</th><th>${kind==='SO'?'客戶／調撥地點':k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>lname(l)+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'||kind==='PO'?payState(d):null;
-    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
+    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${d.xfer?esc((d.from||WH)+' → '+d.party):esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
   const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'')+(kind==='SO'?linesBlock(kind,'sell','gift','贈品（不算金額、不印在收據上，但會扣庫存）'):'');
   return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶或調撥到其他地點時填一張，收款可以分次登記。'}[kind]}</p></div>
     <button type="button" class="btn primary" id="toggleForm" ${role==='ex'?'hidden':''}>${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
@@ -733,6 +736,8 @@ document.addEventListener('submit',e=>{
   if(!exv)e.target.querySelectorAll('.line:not(.cuo)').forEach(r=>{if(!cuOn&&r.closest('#customBox'))return;const it=r.querySelector('.li').value,q=+r.querySelector('.lq').value;const p=r.querySelector('.lp');
     if(it&&q>0){const l={item:it,qty:q};if(p)l.price=+p.value||0;if(r.dataset.dir)l.dir=r.dataset.dir;if(kind==='EX')l.ret=0;lines.push(l)}});
   const fv=$('#f-fee')?{fee:+$('#f-fee').value||0,discount:-Math.abs(+$('#f-disc').value||0)}:null;
+  const xfrom=kind==='SO'&&$('#f-type').value==='xfer'?($('#f-from')&&$('#f-from').value||WH):null;
+  if(xfrom&&xfrom===party){err.textContent='調撥的「從」和「到」不能是同一個地點。';return}
   if(!lines.length){err.textContent=kind==='EX'?'至少要填一項帶出的成品或其它品項的數量。':'至少要有一列選了品項、填了數量。';return}
   if(kind==='MO'&&!lines.some(l=>l.dir==='out')){err.textContent='請填完工的成品數量。';return}
   if(editing){const d=S.docs.find(x=>x.no===editing);if(!d||!can('edit'))return;
@@ -746,6 +751,7 @@ document.addEventListener('submit',e=>{
     const rd=kind==='SO'?rdateVal(date):null;if(rd!=null&&(d.rdate||'')!==rd)ch.push(`收據日期：${d.rdate||d.date} → ${rd||date}`);
     const ty=kind==='SO'?$('#f-type').value==='xfer':null,tk=TAKER[kind]?$('#f-taker').value.trim():null;
     if(ty!=null&&!!d.xfer!==ty)ch.push(`類型：${d.xfer?'調撥':'銷貨'} → ${ty?'調撥':'銷貨'}`);
+    if(xfrom&&(d.from||WH)!==xfrom)ch.push(`調撥從：${d.from||WH} → ${xfrom}`);
     if(exv){const a=d.ev||{};if((a.link||'')!==exv.ev.link||(a.note||'')!==exv.ev.note)ch.push(`活動細節：${[a.link,a.note].filter(Boolean).join(' ')||'—'} → ${[exv.ev.link,exv.ev.note].filter(Boolean).join(' ')||'—'}`);
       if(equipText(d.equip)!==equipText(exv.equip))ch.push(`設備：${equipText(d.equip)||'—'} → ${equipText(exv.equip)||'—'}`)}
     if(tk!=null&&(d.taker||'')!==tk)ch.push(`${TAKER[kind]}：${d.taker||'—'} → ${tk||'—'}`);
@@ -758,6 +764,7 @@ document.addEventListener('submit',e=>{
     (d.log=d.log||[]).push(entry);S.audit.unshift({no:d.no,action:'修改',...entry});
     d.date=date;d.party=party||'—';d.lines=lines;if(d.steps&&d.steps[0])d.steps[0].at=date;
     if(ty!=null){if(ty)d.xfer=true;else delete d.xfer}
+    if(xfrom&&xfrom!==WH)d.from=xfrom;else delete d.from;
     if(exv){exv.equip.forEach(q=>{const o=(d.equip||[]).find(x=>eqLabel(x)===eqLabel(q));if(o&&o.back)q.back=true;if(o&&o.out)q.out=true});d.ev=exv.ev;d.equip=exv.equip;if(exv.daily)d.daily=true;else delete d.daily}
     if(tk!=null){if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk}
     if(rd!=null){if(rd)d.rdate=rd;else delete d.rdate}
@@ -767,7 +774,7 @@ document.addEventListener('submit',e=>{
     save();const no=d.no;editing=null;formOpen=false;exDaily=false;render();toast('已修改 '+no+'，並留下修改紀錄');openDoc(no);return}
   const doc={no:nextNo(kind,date),kind,date,party:party||'—',lines};if(fv){if(fv.fee)doc.fee=fv.fee;if(fv.discount)doc.discount=fv.discount}
   if(kind==='SO'){doc.paid=0;const rd=rdateVal(date);if(rd)doc.rdate=rd;const a=arrVal();if(a.arr)doc.arr=a.arr;if(a.arr2)doc.arr2=a.arr2;
-    if($('#f-type').value==='xfer')doc.xfer=true}
+    if($('#f-type').value==='xfer'){doc.xfer=true;if(xfrom&&xfrom!==WH)doc.from=xfrom}}
   if(TAKER[kind]){const tk=$('#f-taker').value.trim();if(tk)doc.taker=tk}
   const cu=kind==='SO'?customVal():null;
   if(cu&&cu.custom){doc.custom=true;doc.spec=cu.spec;doc.pk=newKey('p');if(formPhotos.length){doc.photos=formPhotos.length;putPhotos(doc.pk,formPhotos.slice())}}
@@ -886,13 +893,18 @@ document.addEventListener('click',e=>{
 // 照片另外存在雲端 jxc/photos/<單據的 pk>，打開單據時才讀，不放進備份檔。
 let formPhotos=[];const PH={};
 const STORES=['草屯門市','南投國道門市','樹德門市','埔里酒廠門市'];
-const xferLocs=()=>[...new Set([...STORES,...S.docs.filter(d=>d.kind==='SO'&&d.xfer).map(d=>d.party).filter(p=>p&&p!=='—')])];
+const xferLocs=()=>[...new Set([WH,...STORES,...S.docs.filter(d=>d.kind==='SO'&&d.xfer).map(d=>d.party).filter(p=>p&&p!=='—')])];
 function typeUI(){const x=$('#f-type')&&$('#f-type').value==='xfer';const l=$('#f-partyLbl');if(l)l.textContent=x?'調撥到（地點）':KINDS.SO.party;if(x&&$('#partyInfo'))$('#partyInfo').hidden=true;
   const f=$('#f-party');if(!f)return;let dl=$('#f-xlocs');if(!dl){f.insertAdjacentHTML('afterend','<datalist id="f-xlocs"></datalist>');dl=$('#f-xlocs')}
   dl.innerHTML=xferLocs().map(p=>`<option value="${esc(p)}">`).join('');f.setAttribute('list',x?'f-xlocs':'f-parties');f.placeholder=x?'點下面的地點，或自己輸入':'打字會從顧客資料提示';
-  let chips=$('#xferChips');if(x&&!chips){f.closest('label').insertAdjacentHTML('afterend','<div id="xferChips" class="row" style="grid-column:1/-1;gap:6px;flex-wrap:wrap"></div>');chips=$('#xferChips')}
-  if(chips){chips.hidden=!x;chips.innerHTML='<span class="hint">調撥到：</span>'+xferLocs().map(p=>`<button type="button" class="btn small xloc" aria-pressed="${f.value===p}">${esc(p)}</button>`).join('')}}
-document.addEventListener('click',e=>{const b=e.target.closest('.xloc');if(!b)return;$('#f-party').value=b.textContent;document.querySelectorAll('.xloc').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+  let chips=$('#xferChips');if(x&&!chips){f.closest('label').insertAdjacentHTML('afterend','<div id="xferChips" style="grid-column:1/-1;display:flex;flex-direction:column;gap:6px"><input type="hidden" id="f-from" value="'+WH+'"><div class="row" id="xfFrom" style="gap:6px;flex-wrap:wrap"></div><div class="row" id="xfTo" style="gap:6px;flex-wrap:wrap"></div><span class="hint" id="xfHint"></span></div>');chips=$('#xferChips')}
+  if(chips){chips.hidden=!x;xferChips()}}
+function xferChips(){const fr=$('#f-from').value||WH,to=$('#f-party').value.trim(),L=xferLocs();
+  $('#xfFrom').innerHTML='<span class="hint" style="width:4em">從：</span>'+L.map(p=>`<button type="button" class="btn small xloc" data-side="from" aria-pressed="${fr===p}">${esc(p)}</button>`).join('');
+  $('#xfTo').innerHTML='<span class="hint" style="width:4em">調撥到：</span>'+L.map(p=>`<button type="button" class="btn small xloc" data-side="to" aria-pressed="${to===p}" ${p===fr?'disabled':''}>${esc(p)}</button>`).join('');
+  $('#xfHint').textContent=fr===WH?'倉庫調出，出貨後會扣庫存。':to===WH?'調回倉庫，按出貨後會加回倉庫庫存。':to?'門市之間調撥，不影響倉庫庫存，只留紀錄。':''}
+document.addEventListener('click',e=>{const b=e.target.closest('.xloc');if(!b)return;if(b.dataset.side==='from'){$('#f-from').value=b.textContent;if($('#f-party').value===b.textContent)$('#f-party').value=''}else $('#f-party').value=b.textContent;xferChips()});
+document.addEventListener('input',e=>{if(e.target.id==='f-party'&&$('#xferChips')&&!$('#xferChips').hidden)xferChips()});
 document.addEventListener('change',e=>{if(e.target.id==='f-type'){typeUI();if(e.target.value!=='xfer')showPartyInfo()}});
 function payPanel(d){
   const po=d.kind==='PO';if(!(d.kind==='SO'&&!d.xfer)&&!po)return '';
@@ -1012,7 +1024,7 @@ let delArm=false;
 function fillEdit(){
   const d=S.docs.find(x=>x.no===editing);if(!d)return;
   $('#f-date').value=d.date;$('#f-party').value=d.party==='—'?'':d.party;showPartyInfo();if(d.kind==='PO'){poVendor=d.party;poList()}
-  if($('#f-type')){$('#f-type').value=d.xfer?'xfer':'sale';typeUI()}
+  if($('#f-type')){$('#f-type').value=d.xfer?'xfer':'sale';typeUI();if(d.xfer&&$('#f-from')){$('#f-from').value=d.from||WH;xferChips()}}
   if($('#f-taker'))$('#f-taker').value=d.taker||'';
   if(d.kind==='EX'){setExDaily(!!d.daily);$('#f-evlink').value=(d.ev&&d.ev.link)||'';$('#f-evnote').value=(d.ev&&d.ev.note)||'';
     (d.equip||[]).forEach(q=>{const i=eqIdx(q);if(i<0)return;$(`.eqc[data-i="${i}"]`).checked=true;$(`.eqn[data-i="${i}"]`).value=q.note||''});eqSync();
@@ -1071,7 +1083,7 @@ function paperHTML(d,quote){
   const combo=d.kind==='SO'&&!d.xfer&&!quote;
   return `<div class="paper a4${combo?' combo':''}">
     <div class="ph"><div><div class="co"><b>${COMPANY.name}</b><br><span style="font-size:.85em;color:#555">${COMPANY.line}</span></div><h3>${k.name}</h3></div><div class="mono" style="color:var(--paper-ink)">${d.no}</div></div>
-    <div class="meta">${d.kind==='EX'?`<div><span>${k.party}：</span>${esc(d.party)}</div><div><span>日期：</span>${d.date}</div>${d.ev&&(d.ev.link||d.ev.note)?`<div style="grid-column:1/-1;white-space:pre-wrap;word-break:break-all"><span>活動細節：</span>${esc([d.ev.link,d.ev.note].filter(Boolean).join('\n'))}</div>`:''}`:`<div><span>日期：</span>${d.date}</div><div><span>${k.party}：</span>${esc(d.party)}</div>`}${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>${TAKER[d.kind]||'開單人員'}：</span>${esc(d.taker)}</div>`:''}${d.pays&&d.pays.length?`<div><span>收款方式：</span>${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
+    <div class="meta">${d.kind==='EX'?`<div><span>${k.party}：</span>${esc(d.party)}</div><div><span>日期：</span>${d.date}</div>${d.ev&&(d.ev.link||d.ev.note)?`<div style="grid-column:1/-1;white-space:pre-wrap;word-break:break-all"><span>活動細節：</span>${esc([d.ev.link,d.ev.note].filter(Boolean).join('\n'))}</div>`:''}`:`<div><span>日期：</span>${d.date}</div>${d.xfer?`<div><span>調撥從：</span>${esc(d.from||WH)}</div>`:''}<div><span>${k.party}：</span>${esc(d.party)}</div>`}${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>${TAKER[d.kind]||'開單人員'}：</span>${esc(d.taker)}</div>`:''}${d.pays&&d.pays.length?`<div><span>收款方式：</span>${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
     <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody>${foot?`<tfoot>${foot}</tfoot>`:''}</table>
     ${d.kind==='EX'?exPaperExtra(d):''}
     ${d.custom?`<div style="white-space:pre-wrap"><b>客訂說明：</b>${esc(d.spec||'')}</div>`:''}
