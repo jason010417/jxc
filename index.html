@@ -681,7 +681,7 @@ function kindHTML(kind){
   <section class="panel">${hasStage(kind)?`<div class="row between"><div class="seg" id="lf">${[['open',kind==='EX'?'帶出中':'進行中'],['done',kind==='EX'?'已歸還':'已完成'],['all','全部']].map(([k2,t])=>`<button type="button" data-f="${k2}" aria-pressed="${lf===k2}">${t}（${all.filter(d=>k2==='all'||(k2==='open'?!docDone(d):docDone(d))).length}）</button>`).join('')}</div><span class="hint">流程：${kind==='EX'?'帶出 → 活動結束登記歸還':FLOW[kind].map(f=>f.t).join(' → ')}</span></div>`:''}<input id="dq" class="rowfilter" data-target="#docBody" placeholder="搜尋單號、${k.party}、品名" style="max-width:300px"><div class="tablebox">${docs.length?`<table><thead>${head}</thead><tbody id="docBody">${rows}</tbody></table>`:'<p class="empty">還沒有單據，按右上角新增第一張。</p>'}</div><p class="hint">點任一張單可以看 A4 版面${kind==='EX'?'、登記歸還':''}${kind==='SO'?'、登記收款':''}。</p></section>`;
 }
 document.addEventListener('click',e=>{
-  if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;exDaily=false;poVendor='';render();return}
+  if(e.target.id==='toggleForm'){formOpen=!formOpen;editing=null;exDaily=false;poVendor='';moSrc=null;render();return}
   const add=e.target.closest('.addline');
   if(add){const box=add.parentElement.previousElementSibling;box.insertAdjacentHTML('beforeend',lineHTML(page,add.dataset.type,add.dataset.dir));return}
   const rm=e.target.closest('.rm');
@@ -703,6 +703,42 @@ document.addEventListener('click',e=>{
   Object.entries(need).forEach(([id,q])=>{box.insertAdjacentHTML('beforeend',lineHTML('MO','','use'));const r=box.lastElementChild;setPick(r.querySelector('.li'),id);r.querySelector('.lq').value=Math.round(q*1000)/1000});
   err.textContent=nob.length?nob.join('、')+' 沒有 BOM，請另外手動加領料。':'';toast('已依 BOM 帶入 '+Object.keys(need).length+' 項領料');
 });
+// 進貨驗收後直接帶入生產單：驗收數量 → 照 BOM 反推能做的成品 → 再照 BOM 算出全部領料，不用再打一次。
+let moSrc=null;
+function moFromPoPanel(d){const mos=S.docs.filter(x=>x.kind==='MO'&&x.src===d.no);
+  return `<div class="pinfo" style="display:flex;flex-direction:column;gap:8px"><p class="sub" style="margin:0">這批進貨要拿去加工？</p>
+    ${mos.length?`<p class="hint" style="margin:0">已經開過生產單：${mos.map(x=>`<button type="button" class="link" data-openmo="${x.no}">${x.no}</button>`).join('、')}</p>`:''}
+    <div class="row"><button type="button" class="btn" id="poToMo">依這張進貨開生產單</button><span class="hint">會用驗收數量照 BOM 算出可以做的成品和要領的料，開單前還可以改。</span></div></div>`}
+function poToMoPlan(po){const out={},use={},notes=[];
+  po.lines.forEach(l=>{const q=l.acc??l.qty;if(!l.item||!(q>0))return;const nm=item(l.item).name;
+    const ps=Object.keys(S.bom).filter(p=>p!==l.item&&!item(p).off&&S.bom[p].some(c=>c.item===l.item));
+    const n=p=>Math.floor(q/S.bom[p].find(c=>c.item===l.item).qty+1e-9);
+    if(ps.length===1&&n(ps[0])>0){out[ps[0]]=Math.max(out[ps[0]]||0,n(ps[0]));return}
+    use[l.item]=(use[l.item]||0)+q;
+    if(ps.length)notes.push({t:`${nm} ${fmt(q)} 可以做成：`,opts:ps.map(p=>({id:p,q:n(p)}))});
+    else notes.push({t:`${nm} 不在任何成品的 BOM 裡，先放在領料`})});
+  return {out,use,notes}}
+function moSetLines(dir,obj,keep){const box=$('#docForm').querySelector(`.lines[data-dir="${dir}"]`);
+  if(!keep)box.innerHTML='';else box.querySelectorAll('.line').forEach(r=>{if(!r.querySelector('.li').value)r.remove()});
+  Object.entries(obj).forEach(([id,q])=>{box.insertAdjacentHTML('beforeend',lineHTML('MO',dir==='out'?'成品':'',dir));const r=box.lastElementChild;setPick(r.querySelector('.li'),id);r.querySelector('.lq').value=Math.round(q*1000)/1000});
+  if(!box.children.length)box.insertAdjacentHTML('beforeend',lineHTML('MO',dir==='out'?'成品':'',dir))}
+// 依目前的完工成品重算領料；進貨裡沒被 BOM 用到的品項照驗收數量留在領料。
+function moRefill(){const f=$('#docForm'),po=S.docs.find(x=>x.no===moSrc);if(!f||!po)return;
+  const hasOut=[...f.querySelectorAll('.line[data-dir="out"] .li')].some(x=>x.value);
+  const need={};if(hasOut){$('#bomFill').click();f.querySelectorAll('.line[data-dir="use"]').forEach(r=>{const id=r.querySelector('.li').value;if(id)need[id]=1})}
+  const rest={};po.lines.forEach(l=>{const q=l.acc??l.qty;if(l.item&&q>0&&!need[l.item])rest[l.item]=(rest[l.item]||0)+q});
+  moSetLines('use',rest,hasOut)}
+function fillMoFromPo(no){const po=S.docs.find(x=>x.no===no),f=$('#docForm');if(!po||!f)return;
+  const {out,notes}=poToMoPlan(po);moSrc=no;
+  moSetLines('out',out);moRefill();
+  const li=notes.map(nt=>`<li>${esc(nt.t)}${nt.opts?nt.opts.map(o=>` <button type="button" class="btn small" data-mkout="${esc(o.id)}" data-q="${o.q}">${esc(item(o.id).name)}${o.q>0?' ×'+fmt(o.q):''}</button>`).join(''):''}</li>`).join('');
+  f.querySelector('.grid-f').insertAdjacentHTML('afterend',`<div class="pinfo" id="moSrcInfo" style="display:block"><b>來源：進貨單 ${esc(no)}</b>（${esc(po.party)}，${po.date}）${li?'<ul style="margin:6px 0 0;padding-left:20px;line-height:2">'+li+'</ul>':''}<p class="hint" style="margin:6px 0 0">${li?'點上面的成品，就會加進「完工成品」並重算領料。':''}數量都可以再改，確認後按存檔。</p></div>`);
+  f.scrollIntoView({block:'start'})}
+document.addEventListener('click',e=>{
+  if(e.target.dataset.openmo){openDoc(e.target.dataset.openmo);return}
+  if(e.target.dataset.mkout){const q=+e.target.dataset.q;moSetLines('out',{[e.target.dataset.mkout]:q>0?q:1},true);moRefill();e.target.disabled=true;toast('已加入完工成品，領料已重算');return}
+  if(e.target.id!=='poToMo')return;const no=curDoc()&&curDoc().no;if(!no)return;
+  closeDoc();go('MO');editing=null;formOpen=true;render();fillMoFromPo(no)});
 document.addEventListener('input',e=>{if(!e.target.classList.contains('rowfilter'))return;const q=e.target.value.trim().toLowerCase();
   document.querySelectorAll(e.target.dataset.target+' tr').forEach(tr=>tr.hidden=q&&!tr.textContent.toLowerCase().includes(q))});
 function showPartyInfo(){
@@ -781,6 +817,8 @@ document.addEventListener('submit',e=>{
   formPhotos=[];
   if(kind==='EX'){doc.returned=false;doc.ev=exv.ev;doc.equip=exv.equip;if(exv.daily)doc.daily=true}
   if(kind==='PO')doc.paid=0;
+  if(kind==='MO'&&moSrc&&$('#moSrcInfo'))doc.src=moSrc;
+  moSrc=null;
   if(FLOW[kind])doc.steps=[{at:date,by:doc.taker||''}];
   S.docs.push(doc);save();formOpen=false;exDaily=false;render();toast('已存檔 '+doc.no);openDoc(doc.no);
 });
@@ -1056,6 +1094,8 @@ function openDoc(no){
     ${d.returned?`<div class="row"><span>銷售金額 <b class="mono">${money(exSales(d))}</b>，捐款 <b class="mono">${money(d.donation)}</b>，合計收入 <b class="mono">${money(exSales(d)+(d.donation||0))}</b></span></div>`:''}
     <div class="row"><button type="button" class="btn primary" id="saveRet">${d.returned?'更新歸還登記':'登記歸還'}</button><span class="hint">（帶出 − 歸還）× 售價 = 銷售金額</span></div></div>`;
   action+=payPanel(d);
+  if(d.kind==='PO'&&stepN(d)>=2&&role!=='ex')action+=moFromPoPanel(d);
+  if(d.kind==='MO'&&d.src)action+=`<p class="hint">來源進貨單：<button type="button" class="link" data-openmo="${esc(d.src)}">${esc(d.src)}</button></p>`;
   $('#overlay').innerHTML=`<div class="sheetbar" data-no="${d.no}">
     <div class="row between"><b class="mono">${d.no}</b><div class="row">${can('edit')?'<button type="button" class="btn small" id="editDoc">修改這張單</button>':''}${can('del')?'<button type="button" class="btn danger small" id="delDoc">刪除這張單</button>':''}<button type="button" class="btn small" id="closeDoc">關閉</button></div></div>
     ${d.custom?customPanel(d):''}${flowPanel(d)}${action}${logHTML(d)}<div class="row"><button type="button" class="btn" id="printDoc">列印${d.xfer?'調撥單':d.kind==='SO'?'出貨單＋收據':''}／存成 PDF</button>${d.kind==='SO'&&!d.xfer?'<button type="button" class="btn" id="printQuote" title="同一張單改印成估價報價單，不含收據、已收未收">列印估價報價單</button>':''}<span class="hint">列印視窗選 A4、直向；要存 PDF 就在印表機選「另存為 PDF」。</span></div></div>${paperHTML(d)}`;
