@@ -214,6 +214,7 @@ input,select{font:inherit;font-size:14px;color:var(--fg);background:var(--bg);bo
       <h1>小團隊進銷存</h1>
       <span class="tag" id="syncTag">線上版・連線中…</span>
       <span class="spacer"></span>
+      <a class="link" href="pos.html" style="font-size:13px">門市 POS</a>
       <span id="userBox" style="font-size:13px"></span>
       <span id="roleBox" style="font-size:13px"></span>
       <button class="link" id="backup" type="button">備份資料</button>
@@ -299,6 +300,12 @@ const FIREBASE_CONFIG={
     if(!ok){gate('<h2>還不能使用</h2><p class="lead">'+esc2(u.email)+' 還沒有被加入使用名單。請管理者在「權限設定」加入這個帳號，然後重新整理頁面。</p><button type="button" class="btn" id="signOut">換一個帳號</button>');return}
     opened=true;resolveDb(db);
   });
+  // 門市 POS（pos.html）的資料在 jxc/pos/；調撥單出貨時在這裡留一筆待收貨，門市確認後回來完成到貨。
+  window.jxcPos={
+    set:(p,v)=>fdb.ref('jxc/pos/'+p).set(enc(v)),
+    remove:p=>fdb.ref('jxc/pos/'+p).remove(),
+    get:async p=>dec((await fdb.ref('jxc/pos/'+p).get()).val()),
+    watchReceipts:fn=>fdb.ref('jxc/pos/stores').on('value',s=>{const out=[];s.forEach(st=>{const r=st.val()&&st.val().receipts||{};Object.values(r).forEach(v=>{const d=dec(v);if(d)out.push(d)})});fn(out)})};
   // 舊系統（erp-app）在資料庫根目錄的 erp/，與本系統的 jxc/ 無關
   window.jxcOld={
     get:async()=>(await fdb.ref('erp').get()).val(),
@@ -931,6 +938,19 @@ document.addEventListener('click',e=>{
 // 照片另外存在雲端 jxc/photos/<單據的 pk>，打開單據時才讀，不放進備份檔。
 let formPhotos=[];const PH={};
 const STORES=['草屯門市','南投國道門市','樹德門市','埔里酒廠門市'];
+/* 門市 POS 連動：調撥到門市＝門市待收貨；從門市調出＝門市庫存扣掉。門市在 POS 確認收貨後，這張調撥單自動完成「到貨確認」。 */
+const POSK={'埔里酒廠門市':'puli','樹德門市':'shude','南投國道門市':'nantou','草屯門市':'caotun'};
+function posShip(d){if(!window.jxcPos)return;const to=POSK[d.party],fr=POSK[d.from],k=pid(d.no),st=d.steps[d.steps.length-1]||{};
+  const lines=d.lines.filter(l=>l.item&&+l.qty>0).map(l=>({id:l.item,name:item(l.item).name,qty:+l.qty}));
+  if(to)jxcPos.set(`stores/${to}/receipts/x${k}`,{id:'x'+k,store:to,date:st.at||today(),src:(d.from&&d.from!==WH?d.from:'工廠')+'調撥',doc:d.no,lines,status:'待收'}).catch(()=>toast('門市 POS 沒有收到這張調撥，請檢查網路'));
+  if(fr)lines.forEach((l,i)=>jxcPos.set(`stores/${fr}/adj/x${k}_${i}`,{id:l.id,name:l.name,aid:'x'+k+'_'+i,date:st.at||today(),qty:-l.qty,reason:'調撥到'+d.party+'（'+d.no+'）',by:st.by||''}).catch(()=>{}));}
+async function posUnship(d){if(!window.jxcPos)return;const to=POSK[d.party],fr=POSK[d.from],k=pid(d.no);
+  try{if(to){const r=await jxcPos.get(`stores/${to}/receipts/x${k}`);if(r&&r.status==='待收')await jxcPos.remove(`stores/${to}/receipts/x${k}`);else if(r)toast('門市已經確認收貨，POS 的收貨紀錄沒有刪掉，請到門市盤點調整')}
+    if(fr)await Promise.all(d.lines.map((l,i)=>jxcPos.remove(`stores/${fr}/adj/x${k}_${i}`)))}catch(e){}}
+function posWatch(){if(!window.jxcPos||posWatch.on)return;posWatch.on=true;
+  jxcPos.watchReceipts(list=>{let ch=false;list.forEach(r=>{if(!r.doc||r.status!=='已收')return;const d=S.docs.find(x=>x.no===r.doc);
+    if(!d||!d.xfer)return;const nx=flowOf(d)[stepN(d)];if(!nx||nx.k!=='arrive')return;
+    d.steps.push({at:r.recvDate||today(),by:(r.by||'門市')+'（POS 確認）'});ch=true});if(ch){save();scheduleRender()}})}
 const xferLocs=()=>[...new Set([WH,...STORES,...S.docs.filter(d=>d.kind==='SO'&&d.xfer).map(d=>d.party).filter(p=>p&&p!=='—')])];
 function typeUI(){const x=$('#f-type')&&$('#f-type').value==='xfer';const l=$('#f-partyLbl');if(l)l.textContent=x?'調撥到（地點）':KINDS.SO.party;if(x&&$('#partyInfo'))$('#partyInfo').hidden=true;
   const f=$('#f-party');if(!f)return;let dl=$('#f-xlocs');if(!dl){f.insertAdjacentHTML('afterend','<datalist id="f-xlocs"></datalist>');dl=$('#f-xlocs')}
@@ -1216,9 +1236,10 @@ $('#overlay').addEventListener('click',async e=>{
     if(nx.k==='pay'&&d.kind==='PO'&&paidOf(d)<amount(d)&&$('#st-pm').value===PREPAY){const fw0=feeVal('st'),need=amount(d)-paidOf(d)-fw0.fee-fw0.wire;if(need>prepayBal(d.party)+0.004){d.steps.pop();toast('預付款餘額只剩 '+money(prepayBal(d.party))+'，不夠扣這張單');return}}
     if(nx.k==='pay'&&(d.kind==='SO'||d.kind==='PO')&&paidOf(d)<amount(d)){const st=d.steps[d.steps.length-1],pm=$('#st-pm').value,pd=paidOf(d);st.prevPaid=d.paid??null;st.method=pm;st.hadPaid=d.paid!=null;
       const fw=feeVal('st'),rest=amount(d)-pd;(d.pays=d.pays||[]).push({at:st.at,amt:rest-fw.fee-fw.wire,method:pm,by:st.by,step:true,...fw.rec});d.paid=amount(d)}
+    if(d.xfer&&nx.k==='ship')posShip(d);
     const ap=autoPay(d,by0);save();render();openDoc(d.no);toast(d.no+' '+nx.done+(ap?'，款項已'+(d.kind==='PO'?'付':'收')+'清，付款步驟自動完成':'')+(nx.k==='ship'&&!d.xfer?'，記得列印出貨單＋收據隨貨附上':''));return}
   if(e.target.id==='stBack'){if(stepN(d)>1&&can('back')){const f=flowOf(d)[stepN(d)-1];{const st=d.steps.pop();if(st.prevPaid!=null||st.hadPaid===false){if(st.hadPaid===false)delete d.paid;else d.paid=st.prevPaid;if(d.pays&&d.pays.length&&d.pays[d.pays.length-1].step)d.pays.pop()}
-        if(f.k==='recv')d.lines.forEach(l=>delete l.acc)}save();render();openDoc(d.no);toast('已退回，取消「'+f.t+'」')}return}
+        if(f.k==='recv')d.lines.forEach(l=>delete l.acc);if(d.xfer&&f.k==='ship')posUnship(d)}save();render();openDoc(d.no);toast('已退回，取消「'+f.t+'」')}return}
   if(e.target.id==='saveRet'){document.querySelectorAll('.ret').forEach((inp,i)=>{d.lines[i].ret=Math.max(0,Math.min(d.lines[i].qty,+inp.value||0));d.lines[i].price=+$('#prc-'+i).value||0});d.donation=+$('#donIn').value||0;document.querySelectorAll('.eqb').forEach(c=>{const q=d.equip[+c.dataset.i];if(q){if(c.checked)q.back=true;else delete q.back}});d.returned=true;save();render();openDoc(d.no);toast('已登記歸還');return}
   if(e.target.id==='savePay'){const v=+$('#payIn').value||0,fw=feeVal('pay');if(v<=0&&!(fw.fee+fw.wire>0))return;const pb=$('#payBy').value.trim();if(!pb){toast('請先填經手人');$('#payBy').focus();return}
     if($('#payMethod').value===PREPAY&&v>prepayBal(d.party)+0.004){toast('預付款餘額只剩 '+money(prepayBal(d.party))+'，不夠扣');return}
@@ -1820,6 +1841,7 @@ if(role==='ex')page='EX';
 if(!S.audit)S.audit=[];
 migrate();save();
 renderRole();renderTabs();render();
+try{posWatch()}catch(e){}
 }
 connect();
 </script>
