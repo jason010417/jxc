@@ -2,9 +2,30 @@
   "rules": {
     "jxc": {
       ".read": "auth != null && auth.token.email_verified == true && (auth.token.email.toLowerCase() == 'jason010417@gmail.com' || root.child('jxcMembers').child(auth.token.email.toLowerCase().replace('.', ',')).val() == true)",
-      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email.toLowerCase() == 'jason010417@gmail.com' || root.child('jxcMembers').child(auth.token.email.toLowerCase().replace('.', ',')).val() == true)"
+      ".write": "auth != null && auth.token.email_verified == true && (auth.token.email.toLowerCase() == 'jason010417@gmail.com' || root.child('jxcMembers').child(auth.token.email.toLowerCase().replace('.', ',')).val() == true)",
+      "pos": {
+        "catalog": {
+          ".read": "auth != null && auth.token.email_verified == true && root.child('jxcPosUsers').child(auth.token.email.toLowerCase().replace('.', ',')).exists()"
+        },
+        "picks": {
+          ".read": "auth != null && auth.token.email_verified == true && root.child('jxcPosUsers').child(auth.token.email.toLowerCase().replace('.', ',')).exists()"
+        },
+        "stores": {
+          "$s": {
+            ".read": "auth != null && auth.token.email_verified == true && root.child('jxcPosUsers').child(auth.token.email.toLowerCase().replace('.', ',')).child('store').val() == $s",
+            ".write": "auth != null && auth.token.email_verified == true && root.child('jxcPosUsers').child(auth.token.email.toLowerCase().replace('.', ',')).child('store').val() == $s && root.child('jxcPosUsers').child(auth.token.email.toLowerCase().replace('.', ',')).child('role').val() == 'store'"
+          }
+        }
+      }
     },
     "jxcMembers": {
+      ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'jason010417@gmail.com'",
+      ".write": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'jason010417@gmail.com'",
+      "$key": {
+        ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase().replace('.', ',') == $key"
+      }
+    },
+    "jxcPosUsers": {
       ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'jason010417@gmail.com'",
       ".write": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase() == 'jason010417@gmail.com'",
       "$key": {
