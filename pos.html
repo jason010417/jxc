@@ -92,7 +92,31 @@ main{padding-block:10px 40px}
 
 /* 結帳視窗 */
 .modal{position:fixed;inset:0;background:#0008;display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
-.modal .box{background:var(--surface);border-radius:10px;width:min(420px,100%);padding:16px;display:flex;flex-direction:column;gap:10px}
+.modal .box{background:var(--surface);border-radius:10px;width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:16px;display:flex;flex-direction:column;gap:10px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{flex:1;border:0;background:var(--bg);padding:9px 6px;font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--key);color:#fff}
+.inv{border:2px solid var(--bad);border-radius:6px;padding:10px;font-variant-numeric:tabular-nums}
+.inv h3{margin:0 0 6px;font-size:1rem;color:var(--bad);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.inv h3 small{color:var(--muted);font-weight:400}
+.inv table{width:100%;border-collapse:collapse;font-size:.9rem}
+.inv th,.inv td{border:1px solid var(--bad-soft);padding:4px 6px;text-align:right}
+.inv th{color:var(--bad);font-weight:500;background:var(--bad-soft)}
+.inv th:first-child,.inv td:first-child{text-align:left}
+.inv tfoot td{font-weight:700}
+.inv tfoot tr.big td{font-size:1.1rem}
+.inv .tip{font-size:.8rem;color:var(--muted);margin-top:6px}
+.taxline{font-size:.78rem;color:var(--muted);display:block}
+.mixwarn{background:var(--warn-soft);color:var(--warn);border-radius:6px;padding:10px 12px;font-size:1rem}
+.steps{margin:0 0 6px;padding-left:22px;font-size:.92rem;display:flex;flex-direction:column;gap:2px}
+.upper{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.upper .ul{font-size:.8rem;color:var(--muted)}
+.ub{display:flex;gap:2px}
+.ub span{display:flex;flex-direction:column;align-items:center;border:1px solid var(--bad-soft);min-width:34px;padding:2px 4px}
+.ub small{font-size:.7rem;color:var(--bad)}
+.ub b{font-size:1.1rem}
+.btn3{border:2px dashed var(--key);background:var(--surface);color:var(--key);border-radius:8px;padding:10px;font-weight:700}
+.btn3[aria-pressed="true"]{border-style:solid;background:var(--key);color:#fff}
 .modal h2{margin:0;font-size:1.2rem}
 .pay{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:1.1rem;font-variant-numeric:tabular-nums}
 .pay b{text-align:right;font-size:1.4rem}
@@ -117,7 +141,7 @@ select,input[type=date],input[type=month],input[type=number],input[type=text],in
 .pill.ok{background:var(--good-soft);color:var(--good)} .pill.no{background:var(--warn-soft);color:var(--warn)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px}
 .cards{display:flex;flex-direction:column;gap:8px}
-.sum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px}
 @media (max-width:560px){.sum{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .sum div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 .sum small{display:block;color:var(--muted);font-size:.78rem}
@@ -248,7 +272,7 @@ select,input[type=date],input[type=month],input[type=number],input[type=text],in
       </div>
       <div>
         <h2>門市商品按鈕</h2>
-        <p class="hint">勾選的商品會出現在該門市收銀畫面的「常用」。品名和單價跟著進銷存的品項清單，要改請到進銷存改。</p>
+        <p class="hint">先選門市（會跟收銀畫面的門市同步）。勾選的商品會出現在該門市收銀畫面的「常用」。「免稅」打勾的品項開發票時不算稅，跟應稅商品一起賣會提醒分開開。品名和單價（含稅價）跟著進銷存的品項清單，要改請到進銷存改。</p>
         <div class="row"><select id="pkStore"></select><input type="search" id="pkSearch" placeholder="搜尋品名" style="flex:1 1 140px"></div>
         <div id="pkList" style="margin-top:8px"></div>
       </div>
@@ -258,10 +282,16 @@ select,input[type=date],input[type=month],input[type=number],input[type=text],in
 </main>
 <div class="modal" id="payModal" hidden><div class="box">
   <h2>結帳</h2>
-  <div class="pay"><span>應收</span><b id="pyDue">0</b><span>收現</span><b><input type="number" id="pyCash" inputmode="numeric" style="width:120px;text-align:right;font-size:1.3rem"></b><span>找零</span><b id="pyChange">0</b><span>發票號碼</span><b><input type="text" id="pyInv" placeholder="手開發票，可之後再補" style="width:100%;text-align:right;font-size:1rem;text-transform:uppercase" autocomplete="off"></b></div>
+  <div class="pay"><span>應收（含稅）</span><b id="pyDue">0</b><span>　未稅銷售額</span><b id="pyNet" style="font-size:1.1rem;color:var(--muted)">0</b><span>　營業稅 5%</span><b id="pyTaxAmt" style="font-size:1.1rem;color:var(--muted)">0</b><span>收現</span><b><input type="number" id="pyCash" inputmode="numeric" style="width:120px;text-align:right;font-size:1.3rem"></b><span id="pyChLbl">找零</span><b id="pyChange">0</b></div>
+  <button class="btn3" id="py3" aria-pressed="false">客人要開三聯式（有統編）→ 按這裡看怎麼開</button>
+  <div class="row" id="pyCo" hidden><input type="text" id="pyTax" inputmode="numeric" maxlength="8" placeholder="買方統一編號 8 碼" style="width:150px" autocomplete="off"><input type="text" id="pyTitle" placeholder="買方抬頭（可不填）" style="flex:1 1 140px" autocomplete="off"><span id="pyTaxMsg" class="hint" style="margin:0"></span></div>
+  <div id="pyRef"></div>
+  <div class="pay"><span id="pyInvLbl">發票號碼</span><b><input type="text" id="pyInv" placeholder="手開發票，可之後再補" style="width:100%;text-align:right;font-size:1rem;text-transform:uppercase" autocomplete="off"></b></div>
+  <div class="pay" id="pyInv2Row" hidden><span>第 2 張（免稅）發票號碼</span><b><input type="text" id="pyInv2" placeholder="可之後再補" style="width:100%;text-align:right;font-size:1rem;text-transform:uppercase" autocomplete="off"></b></div>
   <div class="quick" id="pyQuick"></div>
   <div class="row"><button class="btn" id="pyCancel">返回</button><button class="btn good" id="pyDone" style="flex:1;padding:12px;font-size:1.1rem">完成交易</button></div>
 </div></div>
+<div class="modal" id="invModal" hidden><div class="box"><div id="invBody"></div><button class="btn" id="invClose">關閉</button></div></div>
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -301,6 +331,7 @@ const fdb=firebase.database(),auth=firebase.auth();
 let ME=null;            // {email,name,role,store}
 let CAT=[],CATM={};     // 商品
 let PICKS={};           // {store:[id]}
+let FREE={};            // 免稅品項 {id:true}，存在 jxc/pos/picks/_tax
 const D={};STORES.forEach(([k])=>D[k]={sales:{},receipts:{},adj:{}});
 let USERS={};           // 擁有者才讀得到
 let view="pos",started=false;
@@ -349,7 +380,7 @@ async function start(){
   try{
     if(isStaff())await syncCatalog();
     fdb.ref("jxc/pos/catalog").on("value",s=>{CAT=dec(s.val())||[];CATM=Object.fromEntries(CAT.map(x=>[x.id,x]));refresh()});
-    fdb.ref("jxc/pos/picks").on("value",s=>{const v=s.val()||{};PICKS={};STORES.forEach(([k])=>PICKS[k]=dec(v[k])||[]);refresh()});
+    fdb.ref("jxc/pos/picks").on("value",s=>{const v=s.val()||{};PICKS={};STORES.forEach(([k])=>PICKS[k]=dec(v[k])||[]);FREE=dec(v._tax)||{};refresh()});
     for(const s of myStores())fdb.ref("jxc/pos/stores/"+s).on("value",snap=>{const v=snap.val()||{};
       for(const t of ["sales","receipts","adj"]){const o={};Object.entries(v[t]||{}).forEach(([k,x])=>{const d=dec(x);if(d)o[k]=d});D[s][t]=o}refresh()},
       e=>{syncTag("讀取失敗");gate(`<h2>讀不到資料</h2><p>可能是資料庫規則還沒更新，請聯絡管理者。</p><button class="btn" id="signOut">登出</button>`)});
@@ -402,6 +433,52 @@ function storeSel(el,withAll){const keep=el.value;const ss=myStores();
   el.innerHTML=(withAll&&ss.length>1?`<option value="all">全部門市</option>`:"")+ss.map(s=>`<option value="${s}">${SNAME[s]}</option>`).join("");
   if([...el.options].some(o=>o.value===keep))el.value=keep}
 
+/* ---------- 發票：單價是含稅價，營業稅 5%。每張發票 未稅＝含稅÷1.05 四捨五入，稅額＝含稅－未稅。
+   三聯式每列未稅金額依比例分配，加總等於未稅銷售額。同一筆有應稅＋免稅要分開開兩張。 ---------- */
+const isFree=id=>!!FREE[id];
+function invCalc(lines){
+  const T=lines.filter(l=>!isFree(l.id)).reduce((a,l)=>a+l.qty*l.price,0),F=lines.filter(l=>isFree(l.id)).reduce((a,l)=>a+l.qty*l.price,0);
+  const net=Math.round(T/1.05),tax=T-net;
+  const base=lines.map((l,i)=>({i,raw:isFree(l.id)?null:l.qty*l.price/1.05})).filter(x=>x.raw!=null).map(x=>({...x,v:Math.floor(x.raw),fr:x.raw-Math.floor(x.raw)}));
+  let rest=net-base.reduce((a,x)=>a+x.v,0);base.sort((a,b)=>b.fr-a.fr).forEach(x=>{if(rest>0){x.v++;rest--}});
+  const netOf={};base.forEach(x=>netOf[x.i]=x.v);
+  return {T,F,net,tax,total:T+F,netOf};
+}
+// 存檔時就記下的稅額（taxN 未稅、taxT 稅、taxF 免稅）；舊交易沒有就現算
+const taxOf=x=>x.taxN!=null?x:{...x,...(({net,tax,F})=>({taxN:net,taxT:tax,taxF:F}))(invCalc(x.lines))};
+function validTaxId(v){if(!/^\d{8}$/.test(v))return false;const w=[1,2,1,2,1,2,4,1];let s=0;
+  for(let i=0;i<8;i++){const p=+v[i]*w[i];s+=Math.floor(p/10)+p%10}return s%5===0||(v[6]==="7"&&(s+1)%5===0)}
+const n2=v=>Number.isInteger(v)?String(v):v.toFixed(2);
+const UPD="零壹貳參肆伍陸柒捌玖",PLACES=["億","仟萬","佰萬","拾萬","萬","仟","佰","拾","元"];
+function upperBoxes(n){const d=String(Math.round(n)).padStart(9,"0").slice(-9).split("");let st=d.findIndex(x=>x!=="0");if(st<0)st=8;
+  return `<div class="upper"><span class="ul">總計新臺幣（中文大寫）</span><div class="ub">${PLACES.map((p,i)=>i<st?"":`<span><small>${p}</small><b>${UPD[+d[i]]}</b></span>`).join("")}</div></div>`}
+const mixed=lines=>lines.some(l=>isFree(l.id))&&lines.some(l=>!isFree(l.id));
+// 一張發票的填寫參考。free=true 是免稅那張（不算稅）。
+function invOne(lines,type,free,taxId,title,tag){
+  const c=invCalc(lines),tot=c.total,net=free?tot:c.net,tax=free?0:c.tax;
+  const head=`<h3>${tag||""}${type==="3"?"三聯式":"二聯式"}・${free?"免稅":"應稅"}<small>${money(tot)} 元</small></h3>`;
+  if(type==="3"){
+    const rows=lines.map((l,i)=>{const amt=free?l.qty*l.price:c.netOf[i];return `<tr><td>${esc(iname(l.id))}</td><td>${l.qty}</td><td>${n2(Math.round(amt/l.qty*100)/100)}</td><td>${money(amt)}</td></tr>`}).join("");
+    return `<div class="inv">${head}<ol class="steps">
+      <li>買受人寫「${esc(title)||"（公司抬頭）"}」，統一編號寫「${taxId?esc(taxId):"＿＿＿＿＿＿＿＿"}」</li>
+      <li>課稅別勾「<b>${free?"免稅":"應稅"}</b>」</li>
+      <li>品名、數量照下表寫，<b>單價和金額要寫未稅的</b>：</li></ol>
+      <table><thead><tr><th>品名</th><th>數量</th><th>單價（未稅）</th><th>金額（未稅）</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="3">④ 銷售額合計</td><td>${money(net)}</td></tr><tr><td colspan="3">⑤ 營業稅</td><td>${money(tax)}</td></tr><tr class="big"><td colspan="3">⑥ 總計</td><td>${money(tot)}</td></tr></tfoot></table>
+      ${upperBoxes(tot)}</div>`}
+  return `<div class="inv">${head}<table><thead><tr><th>品名</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>
+    ${lines.map(l=>`<tr><td>${esc(iname(l.id))}</td><td>${l.qty}</td><td>${l.price}</td><td>${money(l.qty*l.price)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr class="big"><td colspan="3">總計（寫在發票上）</td><td>${money(tot)}</td></tr></tfoot></table>
+    ${upperBoxes(tot)}<div class="tip">${free?"免稅品項，不含營業稅。":"對帳用：未稅 "+money(net)+"＋稅 "+money(tax)+"（二聯式發票上不用寫）"}</div></div>`;
+}
+function invRef(lines,type,taxId,title){
+  if(!lines.length)return"";
+  if(!mixed(lines))return invOne(lines,type,isFree(lines[0].c),taxId,title,"");
+  const tl=lines.filter(l=>!isFree(l.id)),fl=lines.filter(l=>isFree(l.id));
+  return `<div class="mixwarn">⚠ 這筆同時有<b>應稅</b>和<b>免稅</b>商品，發票要<b>分開開兩張</b>。</div>`+invOne(tl,type,false,taxId,title,"第 1 張・")+invOne(fl,type,true,taxId,title,"第 2 張・");
+}
+
+
 /* ---------- 收銀 ---------- */
 let cart=[],sel=-1,buf="",cat="常用",cust="",posStore=null;
 function renderPos(){
@@ -442,26 +519,41 @@ document.querySelectorAll("#cust [data-g]").forEach(b=>b.onclick=()=>{cust=cust=
 const pm=$("#payModal"),pyCash=$("#pyCash");
 $("#checkout").onclick=()=>{
   if(!cart.length){toast("還沒有點商品");return}
-  const d=due();$("#pyDue").textContent=money(d);pyCash.value="";$("#pyInv").value="";
+  const d=due();$("#pyDue").textContent=money(d);pyCash.value="";$("#pyInv").value="";$("#pyInv2").value="";pyType="2";$("#pyTax").value="";$("#pyTitle").value="";refUpd();
   const q=[...new Set([d,Math.ceil(d/100)*100,Math.ceil(d/500)*500,Math.ceil(d/1000)*1000])];
   $("#pyQuick").innerHTML=q.map(v=>`<button data-v="${v}">${v===d?"剛好 ":""}${money(v)}</button>`).join("");
   $("#pyQuick").querySelectorAll("button").forEach(b=>b.onclick=()=>{pyCash.value=b.dataset.v;payUpd()});
   payUpd();pm.hidden=false;pyCash.focus()};
-function payUpd(){const c=parseInt(pyCash.value),ch=isNaN(c)?0:c-due(),el=$("#pyChange");el.textContent=isNaN(c)?"—":money(ch);el.className=ch<0?"neg":""}
+function payUpd(){const c=parseInt(pyCash.value),ch=isNaN(c)?0:c-due(),el=$("#pyChange");
+  $("#pyChLbl").textContent=ch<0?"還差":"找零";el.textContent=isNaN(c)?"—":money(Math.abs(ch));el.className=ch<0?"neg":"";
+  const k=invCalc(cart);$("#pyNet").textContent=money(k.net+k.F);$("#pyTaxAmt").textContent=money(k.tax)}
+let pyType="2";
+function refUpd(){const b3=$("#py3");b3.setAttribute("aria-pressed",pyType==="3");b3.textContent=pyType==="3"?"改回二聯式（個人）":"客人要開三聯式（有統編）→ 按這裡看怎麼開";
+  const mx=mixed(cart);$("#pyInv2Row").hidden=!mx;$("#pyInvLbl").textContent=mx?"第 1 張（應稅）發票號碼":"發票號碼";
+  $("#pyCo").hidden=pyType!=="3";const tx=$("#pyTax").value.trim();
+  $("#pyTaxMsg").innerHTML=pyType==="3"&&tx.length===8?(validTaxId(tx)?'<span class="pill ok">統編格式正確</span>':'<span class="pill bad">統編好像打錯了</span>'):"";
+  $("#pyRef").innerHTML=invRef(cart,pyType,tx,$("#pyTitle").value.trim())}
+$("#py3").onclick=()=>{pyType=pyType==="3"?"2":"3";refUpd();if(pyType==="3")$("#pyTax").focus()};
+$("#pyTax").oninput=refUpd;$("#pyTitle").oninput=refUpd;
+$("#invClose").onclick=()=>$("#invModal").hidden=true;
+function showInv(x){$("#invBody").innerHTML=`<h2 style="margin:0 0 8px">${SNAME[x.store]}・${x.date.slice(5).replace("-","/")} 第 ${x.no} 筆${x.inv?"・"+esc(x.inv):""}</h2>`+invRef(x.lines,x.itype||"2",x.taxId,x.title);$("#invModal").hidden=false}
 pyCash.oninput=payUpd;
 $("#pyCancel").onclick=()=>{pm.hidden=true;if(dirty){dirty=false;boot()}};
 let paying=false;
 $("#pyDone").onclick=async()=>{
   if(paying)return;const c=parseInt(pyCash.value);if(!isNaN(c)&&c<due()){toast("收的錢不夠");return}
-  const inv=$("#pyInv").value.trim().toUpperCase();
-  if(inv){const dup=findInv(inv);if(dup){toast(`發票號碼 ${inv} 已經用在 ${SNAME[dup.store]} ${dup.date.slice(5)} 第 ${dup.no} 筆`);return}}
+  const mx=mixed(cart),inv=$("#pyInv").value.trim().toUpperCase(),inv2=mx?$("#pyInv2").value.trim().toUpperCase():"",taxId=$("#pyTax").value.trim();
+  if(pyType==="3"&&!validTaxId(taxId)){toast("三聯式請填正確的 8 碼統編");return}
+  if(inv&&inv===inv2){toast("兩張發票的號碼不能一樣");return}
+  for(const v of [inv,inv2])if(v){const dup=findInv(v);if(dup){toast(`發票號碼 ${v} 已經用在 ${SNAME[dup.store]} ${dup.date.slice(5)} 第 ${dup.no} 筆`);return}}
+  const k=invCalc(cart);
   const T=today(),n=new Date(),no=arr(posStore,"sales").filter(x=>x.date===T).length+1,id=newId();
-  const sale={id,store:posStore,date:T,time:pad(n.getHours())+":"+pad(n.getMinutes()),no,lines:cart.map(l=>({...l})),total:due(),cust,inv,void:false,by:ME.name,email:ME.email};
+  const sale={id,store:posStore,date:T,time:pad(n.getHours())+":"+pad(n.getMinutes()),no,lines:cart.map(l=>({...l})),total:due(),cust,inv,inv2,itype:pyType,taxId:pyType==="3"?taxId:"",title:pyType==="3"?$("#pyTitle").value.trim():"",taxN:k.net,taxT:k.tax,taxF:k.F,void:false,by:ME.name,email:ME.email};
   paying=true;const ok=await put(`stores/${posStore}/sales/${id}`,sale);paying=false;
   if(!ok)return;
   pm.hidden=true;cart=[];sel=-1;buf="";cust="";dirty=false;toast(`第 ${no} 筆交易完成`);renderPos();
 };
-function findInv(v,exceptId){for(const s of myStores())for(const x of arr(s,"sales"))if(x.inv===v&&x.id!==exceptId)return x;return null}
+function findInv(v,exceptId,exceptKey){for(const s of myStores())for(const x of arr(s,"sales")){if(x.id===exceptId){const o=exceptKey==="inv"?"inv2":"inv";if(x[o]===v)return x;continue}if(x.inv===v||x.inv2===v)return x}return null}
 
 /* ---------- 進貨 ---------- */
 function renderIn(){
@@ -511,18 +603,20 @@ $("#dyDate").value=today();["dyStore","dyDate"].forEach(k=>$("#"+k).onchange=ren
 function renderDay(){
   $("#info").innerHTML="";storeSel($("#dyStore"),true);
   const ss=$("#dyStore").value==="all"?myStores():[$("#dyStore").value],d=$("#dyDate").value||today(),f=$("#dyFind").value.trim().toUpperCase();
-  const list=ss.flatMap(s=>arr(s,"sales")).filter(x=>f?(x.inv||"").includes(f):x.date===d).sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time)||b.no-a.no);
+  const list=ss.flatMap(s=>arr(s,"sales")).filter(x=>f?((x.inv||"")+" "+(x.inv2||"")).includes(f):x.date===d).sort((a,b)=>b.date.localeCompare(a.date)||b.time.localeCompare(a.time)||b.no-a.no);
   const ok=list.filter(x=>!x.void);
-  $("#dySum").innerHTML=[["營業額",money(ok.reduce((a,x)=>a+x.total,0))],["交易筆數",ok.length],["賣出件數",ok.reduce((a,x)=>a+x.lines.reduce((b,l)=>b+l.qty,0),0)],["未填發票",ok.filter(x=>!x.inv).length]].map(([l,v])=>`<div><small>${l}</small><b>${v}</b></div>`).join("");
+  $("#dySum").innerHTML=[["營業額（含稅）",money(ok.reduce((a,x)=>a+x.total,0))],["未稅銷售額",money(ok.reduce((a,x)=>{const k=taxOf(x);return a+k.taxN+k.taxF},0))],["營業稅",money(ok.reduce((a,x)=>a+taxOf(x).taxT,0))],["交易筆數",ok.length],["未填發票",ok.filter(x=>!x.inv||mixed(x.lines)&&!x.inv2).length]].map(([l,v])=>`<div><small>${l}</small><b>${v}</b></div>`).join("");
   const canVoid=x=>!isVenue()&&(isStaff()||x.date===today());
-  const invCell=x=>isVenue()||x.void?(x.inv?esc(x.inv):'<span class="pill no">未填</span>'):`<input type="text" value="${esc(x.inv||"")}" data-inv="${esc(x.id)}" data-s="${x.store}" placeholder="輸入發票號碼" style="width:130px;text-transform:uppercase" autocomplete="off" aria-label="發票號碼">`;
-  $("#dyBody").innerHTML=list.map(x=>`<tr style="${x.void?"opacity:.5;text-decoration:line-through":""}"><td class="l">${x.no}</td><td class="l">${f?x.date.slice(5).replace("-","/")+" ":""}${x.time}</td><td class="l">${invCell(x)}</td><td class="l">${SNAME[x.store]}</td><td class="l" style="white-space:normal">${x.lines.map(l=>esc(l.name||iname(l.id))+" ×"+l.qty).join("、")}</td><td>${money(x.total)}</td><td class="l">${x.cust||"—"}</td><td>${!x.void&&canVoid(x)?`<button class="btn" data-void="${esc(x.id)}" data-s="${x.store}">作廢</button>`:x.void?'<span class="pill bad">已作廢</span>':""}</td></tr>`).join("")||`<tr><td colspan="8" style="text-align:center">${f?"找不到這個發票號碼":"這天沒有交易"}</td></tr>`;
+  const one=(x,k,ph)=>isVenue()||x.void?(x[k]?esc(x[k]):'<span class="pill no">未填</span>'):`<input type="text" value="${esc(x[k]||"")}" data-inv="${esc(x.id)}" data-k="${k}" data-s="${x.store}" placeholder="${ph}" style="width:130px;text-transform:uppercase" autocomplete="off" aria-label="發票號碼">`;
+  const invCell=x=>mixed(x.lines)||x.inv2?`<div style="display:flex;flex-direction:column;gap:2px"><small>應稅</small>${one(x,"inv","應稅發票號碼")}<small>免稅</small>${one(x,"inv2","免稅發票號碼")}</div>`:one(x,"inv","輸入發票號碼");
+  $("#dyBody").innerHTML=list.map(x=>`<tr style="${x.void?"opacity:.5;text-decoration:line-through":""}"><td class="l">${x.no}</td><td class="l">${f?x.date.slice(5).replace("-","/")+" ":""}${x.time}</td><td class="l">${invCell(x)}</td><td class="l">${SNAME[x.store]}</td><td class="l" style="white-space:normal">${x.lines.map(l=>esc(l.name||iname(l.id))+" ×"+l.qty).join("、")}</td><td>${money(x.total)}<span class="taxline">未稅 ${money(taxOf(x).taxN+taxOf(x).taxF)}／稅 ${money(taxOf(x).taxT)}</span></td><td class="l">${x.cust||"—"}</td><td><button class="btn" data-ref="${esc(x.id)}" data-s="${x.store}" style="margin-right:4px">${x.itype==="3"?"三聯":"二聯"}</button>${!x.void&&canVoid(x)?`<button class="btn" data-void="${esc(x.id)}" data-s="${x.store}">作廢</button>`:x.void?'<span class="pill bad">已作廢</span>':""}</td></tr>`).join("")||`<tr><td colspan="8" style="text-align:center">${f?"找不到這個發票號碼":"這天沒有交易"}</td></tr>`;
   $("#dyBody").querySelectorAll("[data-void]").forEach(b=>{let armed=false;b.onclick=async()=>{if(!armed){armed=true;b.textContent="再按一次確認";return}
     const x={...D[b.dataset.s].sales[b.dataset.void],void:true,voidBy:ME.name,voidAt:new Date().toISOString()};b.disabled=true;
     if(await put(`stores/${b.dataset.s}/sales/${x.id}`,x))toast("已作廢，庫存已退回")}});
-  $("#dyBody").querySelectorAll("[data-inv]").forEach(i=>i.onchange=async()=>{const v=i.value.trim().toUpperCase(),cur=D[i.dataset.s].sales[i.dataset.inv];
-    const dup=v&&findInv(v,cur.id);if(dup){toast(`這個號碼已用在 ${SNAME[dup.store]} ${dup.date.slice(5)} 第 ${dup.no} 筆`);i.value=cur.inv||"";return}
-    if(await put(`stores/${i.dataset.s}/sales/${cur.id}`,{...cur,inv:v}))toast(v?"發票號碼已存":"已清除發票號碼")});
+  $("#dyBody").querySelectorAll("[data-ref]").forEach(b=>b.onclick=()=>showInv(D[b.dataset.s].sales[b.dataset.ref]));
+  $("#dyBody").querySelectorAll("[data-inv]").forEach(i=>i.onchange=async()=>{const v=i.value.trim().toUpperCase(),k=i.dataset.k||"inv",cur=D[i.dataset.s].sales[i.dataset.inv];
+    const dup=v&&findInv(v,cur.id,k);if(dup){toast(`這個號碼已用在 ${SNAME[dup.store]} ${dup.date.slice(5)} 第 ${dup.no} 筆`);i.value=cur[k]||"";return}
+    if(await put(`stores/${i.dataset.s}/sales/${cur.id}`,{...cur,[k]:v}))toast(v?"發票號碼已存":"已清除發票號碼")});
 }
 
 /* ---------- 月報 ---------- */
@@ -539,7 +633,7 @@ function renderMonth(){
   $("#moBody").innerHTML=rows.map(([id,a])=>`<tr><td class="l">${esc(iname(id))}</td>${cells(a)}</tr>`).join("")||`<tr><td colspan="7" style="text-align:center">這個月沒有資料</td></tr>`;
   $("#moFoot").innerHTML=`<tr><td class="l">合計</td>${cells(T)}</tr>`;
   const sales=ss.flatMap(s=>arr(s,"sales")).filter(x=>!x.void&&x.date>=first&&x.date<=last);
-  $("#moSum").innerHTML=[["銷售額",money(T.amt)],["交易筆數",sales.length],["賣出件數",T.sold],["進貨件數",T.inn]].map(([l,v])=>`<div><small>${l}</small><b>${v}</b></div>`).join("");
+  $("#moSum").innerHTML=[["銷售額（含稅）",money(T.amt)],["未稅銷售額",money(sales.reduce((a,x)=>{const k=taxOf(x);return a+k.taxN+k.taxF},0))],["營業稅",money(sales.reduce((a,x)=>a+taxOf(x).taxT,0))],["交易筆數",sales.length],["三聯式張數",sales.filter(x=>x.itype==="3").length]].map(([l,v])=>`<div><small>${l}</small><b>${v}</b></div>`).join("");
   $("#cgHead").innerHTML=`<tr><th class="l">客層</th>${ss.map(s=>`<th>${SNAME[s]}</th>`).join("")}${ss.length>1?"<th>合計</th>":""}</tr>`;
   $("#cgBody").innerHTML=[...GROUPS,""].map(g=>{const v=ss.map(s=>sales.filter(x=>x.store===s&&(x.cust||"")===g).length);
     return `<tr><td class="l">${g||"未選"}</td>${v.map(n=>`<td>${n}</td>`).join("")}${ss.length>1?`<td><b>${v.reduce((a,b)=>a+b,0)}</b></td>`:""}</tr>`}).join("");
@@ -548,8 +642,9 @@ function renderMonth(){
 /* ---------- 設定 ---------- */
 $("#acStore").innerHTML=STORES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("");
 $("#pkStore").innerHTML=STORES.map(s=>`<option value="${s[0]}">${s[1]}</option>`).join("");
-$("#pkStore").onchange=renderSet;$("#pkSearch").oninput=renderSet;
+$("#pkStore").onchange=()=>{const v=$("#pkStore").value;if(myStores().includes(v)){posStore=v;try{localStorage.setItem("jxcpos-store",v)}catch(e){}}renderSet()};$("#pkSearch").oninput=renderSet;
 function renderSet(){
+  if(posStore)$("#pkStore").value=posStore;
   $("#info").innerHTML="";const own=ME.role==="owner";
   $("#acForm").hidden=!own;
   $("#acBody").innerHTML=own?(Object.entries(USERS).map(([k,u])=>`<tr><td class="l">${esc(u.name||"")}<br><small style="color:var(--muted)">${esc(k.replace(/,/g,"."))}</small></td><td class="l">${ROLE[u.role]||u.role}</td><td class="l">${SNAME[u.store]||"—"}</td><td><button class="btn" data-del="${esc(k)}">移除</button></td></tr>`).join("")||`<tr><td colspan="4" style="text-align:center">還沒有門市帳號</td></tr>`)
@@ -559,8 +654,9 @@ function renderSet(){
   const s=$("#pkStore").value,q=$("#pkSearch").value.trim(),selS=new Set(PICKS[s]||[]);
   const cats=[...new Set(CAT.map(x=>x.cat))];
   $("#pkList").innerHTML=cats.map(c=>{const its=CAT.filter(x=>x.cat===c&&(!q||x.name.includes(q)||x.code.includes(q)));if(!its.length)return"";
-    return `<h3 style="font-size:.92rem;color:var(--muted);margin:12px 0 4px">${esc(c)}（${its.filter(x=>selS.has(x.id)).length}/${its.length}）</h3><div class="checks">${its.map(x=>`<label><input type="checkbox" value="${esc(x.id)}"${selS.has(x.id)?" checked":""}><span style="flex:1">${esc(x.name)}</span><small style="color:var(--muted)">${x.price?"$"+x.price:"未定價"}</small></label>`).join("")}</div>`}).join("")||`<p class="hint">${CAT.length?"找不到符合的商品":"商品清單是空的：請確認進銷存品項的類型是「成品」"}</p>`;
-  $("#pkList").querySelectorAll("input[type=checkbox]").forEach(i=>i.onchange=()=>{const a=[...(PICKS[s]||[])],k=a.indexOf(i.value);if(i.checked&&k<0)a.push(i.value);if(!i.checked&&k>=0)a.splice(k,1);PICKS[s]=a;put("picks/"+s,a)});
+    return `<h3 style="font-size:.92rem;color:var(--muted);margin:12px 0 4px">${esc(c)}（${its.filter(x=>selS.has(x.id)).length}/${its.length}）</h3><div class="checks">${its.map(x=>`<label><input type="checkbox" value="${esc(x.id)}"${selS.has(x.id)?" checked":""}><span style="flex:1">${esc(x.name)}</span><span style="font-size:.78rem;display:flex;gap:2px;align-items:center" title="免稅品項不算營業稅"><input type="checkbox" data-free="${esc(x.id)}"${isFree(x.id)?" checked":""} style="width:15px;height:15px">免稅</span><small style="color:var(--muted)">${x.price?"$"+x.price:"未定價"}</small></label>`).join("")}</div>`}).join("")||`<p class="hint">${CAT.length?"找不到符合的商品":"商品清單是空的：請確認進銷存品項的類型是「成品」"}</p>`;
+  $("#pkList").querySelectorAll("[data-free]").forEach(i=>{i.onclick=e=>e.stopPropagation();i.onchange=()=>{const f={...FREE};if(i.checked)f[i.dataset.free]=true;else delete f[i.dataset.free];FREE=f;put("picks/_tax",f);toast(i.checked?"已設為免稅":"已改回應稅")}});
+  $("#pkList").querySelectorAll("input[type=checkbox]:not([data-free])").forEach(i=>i.onchange=()=>{const a=[...(PICKS[s]||[])],k=a.indexOf(i.value);if(i.checked&&k<0)a.push(i.value);if(!i.checked&&k>=0)a.splice(k,1);PICKS[s]=a;put("picks/"+s,a)});
 }
 $("#acAdd").onclick=async()=>{const n=$("#acName").value.trim(),m=$("#acMail").value.trim().toLowerCase();
   if(!n||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){toast("請填名稱和正確的 Gmail");return}
