@@ -659,7 +659,7 @@ function kindHTML(kind){
   const head=`<tr><th>單號</th>${FLOW[kind]?'<th>流程進度</th>':''}${kind==='SO'?'<th>收款</th>':kind==='PO'?'<th>付款</th>':''}<th>日期</th><th>${kind==='SO'?'客戶／調撥地點':k.party}</th><th>品項</th>${k.priced?'<th class="n">金額</th>':''}${kind==='EX'?'<th class="n">銷售金額</th><th class="n">捐款</th><th>狀態</th>':''}</tr>`;
   const rows=docs.map(d=>{const sum=d.lines.filter(l=>kind!=='MO'||l.dir==='out').map(l=>lname(l)+' ×'+fmt(l.qty)).join('、');
     const ps=kind==='SO'||kind==='PO'?payState(d):null;
-    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${d.xfer?esc((d.from||WH)+' → '+d.party):esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
+    return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}${d.xfer?' <span class="pill mid">調撥</span>':''}${d.oem?' <span class="pill mid">代工</span>':''}${d.daily?' <span class="pill mid">平日</span>':''}${d.custom?' <span class="pill warn">客訂</span>':''}</td>${FLOW[kind]?`<td>${progHTML(d)}</td>`:''}${ps?`<td><span class="pill ${ps[1]}">${ps[0]}</span>${d.pays&&d.pays.length?`<br><span class="hint">${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</span>`:''}</td>`:''}<td>${d.date}${d.arr?`<br><span class="hint">到貨 ${arrText(d)}</span>`:''}</td><td>${d.xfer?esc((d.from||WH)+' → '+d.party):esc(d.party)}</td><td>${kind==='MO'?'完工：':''}${esc(sum)}</td>${k.priced?`<td class="n">${d.xfer?'':money(amount(d))}</td>`:''}${kind==='EX'?`<td class="n">${d.returned?money(exSales(d)):''}</td><td class="n">${d.returned?money(d.donation):''}</td><td>${d.returned?'<span class="pill ok">已歸還</span>':'<span class="pill warn">帶出中</span>'}</td>`:''}</tr>`}).join('');
   const body=kind==='EX'?exFormHTML():kind==='MO'?linesBlock(kind,'','use','領用半成品／包材')+linesBlock(kind,'成品','out','完工成品')+'<div class="row"><button type="button" class="btn small" id="bomFill">依 BOM 自動帶入領料</button><span class="hint">先填完工成品和數量，再按這裡，會照 BOM 算出要領的半成品和包材。</span></div>':linesBlock(kind,k.type,'')+(kind==='SO'?linesBlock(kind,'sell','gift','贈品（不算金額、不印在收據上，但會扣庫存）'):'');
   return `<div class="row between"><div><h2>${k.name}</h2><p class="lead">${{PO:'半成品進貨時填一張，數量會自動加進庫存。',MO:'一張單記錄領了哪些半成品、做出多少成品。',EX:'帶出去擺攤時填一張，回來再登記歸還數量、售價和捐款，沒回來的就算外展賣掉。',SO:'出貨給客戶或調撥到其他地點時填一張，收款可以分次登記。'}[kind]}</p></div>
     <button type="button" class="btn primary" id="toggleForm" ${role==='ex'?'hidden':''}>${formOpen?(editing?'取消修改':'收起'):'＋ 新增'+k.short+'單'}</button></div>
@@ -675,6 +675,8 @@ function kindHTML(kind){
       ${editing?'<label class="f">修改人（必填）<input id="f-editor" list="st-bys2"></label><label class="f">修改原因<input id="f-reason" placeholder="例如：客戶改數量"></label>':''}
     </div>
     ${kind==='SO'||kind==='PO'?'<div id="partyInfo" class="pinfo" hidden></div>':''}
+    ${kind==='PO'?`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-oem" style="width:auto">這是請別人代工（委外加工）</label>
+    <div id="oemBox" class="custom" hidden><label class="f">代工內容（做什麼、送了什麼料過去、交期⋯）<textarea id="f-oemSpec" rows="3"></textarea></label><p class="hint" style="margin:0">勾選後品項也可以選成品，例如請廠商做好直接交成品。</p></div>`:''}
     ${kind==='SO'?`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="f-custom" style="width:auto">這是客訂單（客製化商品）</label>
     <div id="customBox" class="custom" hidden><label class="f">客訂說明（尺寸、顏色、字樣、交期⋯）<textarea id="f-spec" rows="3"></textarea></label>
       <p class="sub">收據品項（照客人訂的寫，算金額、印在收據上；不扣庫存）</p><div id="cuLines">${cuRow()}</div><div><button type="button" class="btn small" id="addCu">＋ 加一列</button></div>
@@ -712,8 +714,10 @@ document.addEventListener('click',e=>{
 });
 // 進貨驗收後直接帶入生產單：驗收數量 → 照 BOM 反推能做的成品 → 再照 BOM 算出全部領料，不用再打一次。
 let moSrc=null;
+document.addEventListener('click',e=>{if(e.target.id!=='poNoMo')return;const d=curDoc();if(!d)return;if(d.noMo)delete d.noMo;else d.noMo=true;save();openDoc(d.no);toast(d.noMo?'這張進貨不會再出現在待生產提醒':'已改回要提醒')});
 function moFromPoPanel(d){const mos=S.docs.filter(x=>x.kind==='MO'&&x.src===d.no);
   return `<div class="pinfo" style="display:flex;flex-direction:column;gap:8px"><p class="sub" style="margin:0">這批進貨要拿去加工？</p>
+    ${(r=>r.length?`<p class="hint" style="margin:0;color:var(--warn,#b54708)">還沒生產：${esc(r.map(x=>lname(x)+' '+fmt(x.rem)).join('、'))}　<button type="button" class="link" id="poNoMo">這批不用生產，不要再提醒</button></p>`:d.noMo?'<p class="hint" style="margin:0">已設定這批不用生產。<button type="button" class="link" id="poNoMo">改回要提醒</button></p>':'')(poPending(d))}
     ${mos.length?`<p class="hint" style="margin:0">已經開過生產單：${mos.map(x=>`<button type="button" class="link" data-openmo="${x.no}">${x.no}</button>`).join('、')}</p>`:''}
     <div class="row"><button type="button" class="btn" id="poToMo">依這張進貨開生產單</button><span class="hint">會用驗收數量照 BOM 算出可以做的成品和要領的料，開單前還可以改。</span></div></div>`}
 function poToMoPlan(po){const out={},use={},notes=[];
@@ -779,6 +783,7 @@ document.addEventListener('submit',e=>{
   if(!exv)e.target.querySelectorAll('.line:not(.cuo)').forEach(r=>{if(!cuOn&&r.closest('#customBox'))return;const it=r.querySelector('.li').value,q=+r.querySelector('.lq').value;const p=r.querySelector('.lp');
     if(it&&q>0){const l={item:it,qty:q};if(p)l.price=+p.value||0;if(r.dataset.dir)l.dir=r.dataset.dir;if(kind==='EX')l.ret=0;lines.push(l)}});
   const fv=$('#f-fee')?{fee:+$('#f-fee').value||0,discount:-Math.abs(+$('#f-disc').value||0)}:null;
+  const oem=kind==='PO'&&$('#f-oem')?{on:$('#f-oem').checked,spec:$('#f-oemSpec').value.trim()}:null;
   const xfrom=kind==='SO'&&$('#f-type').value==='xfer'?($('#f-from')&&$('#f-from').value||WH):null;
   if(xfrom&&xfrom===party){err.textContent='調撥的「從」和「到」不能是同一個地點。';return}
   if(!lines.length){err.textContent=kind==='EX'?'至少要填一項帶出的成品或其它品項的數量。':'至少要有一列選了品項、填了數量。';return}
@@ -794,6 +799,7 @@ document.addEventListener('submit',e=>{
     const rd=kind==='SO'?rdateVal(date):null;if(rd!=null&&(d.rdate||'')!==rd)ch.push(`收據日期：${d.rdate||d.date} → ${rd||date}`);
     const ty=kind==='SO'?$('#f-type').value==='xfer':null,tk=TAKER[kind]?$('#f-taker').value.trim():null;
     if(ty!=null&&!!d.xfer!==ty)ch.push(`類型：${d.xfer?'調撥':'銷貨'} → ${ty?'調撥':'銷貨'}`);
+    if(oem&&(!!d.oem!==oem.on||(d.oemSpec||'')!==(oem.on?oem.spec:'')))ch.push(`代工：${d.oem?'是':'否'}${d.oemSpec?'（'+d.oemSpec+'）':''} → ${oem.on?'是':'否'}${oem.on&&oem.spec?'（'+oem.spec+'）':''}`);
     if(xfrom&&(d.from||WH)!==xfrom)ch.push(`調撥從：${d.from||WH} → ${xfrom}`);
     if(exv){const a=d.ev||{};if((a.link||'')!==exv.ev.link||(a.note||'')!==exv.ev.note)ch.push(`活動細節：${[a.link,a.note].filter(Boolean).join(' ')||'—'} → ${[exv.ev.link,exv.ev.note].filter(Boolean).join(' ')||'—'}`);
       if(equipText(d.equip)!==equipText(exv.equip))ch.push(`設備：${equipText(d.equip)||'—'} → ${equipText(exv.equip)||'—'}`)}
@@ -808,6 +814,7 @@ document.addEventListener('submit',e=>{
     d.date=date;d.party=party||'—';d.lines=lines;if(d.steps&&d.steps[0])d.steps[0].at=date;
     if(ty!=null){if(ty)d.xfer=true;else delete d.xfer}
     if(xfrom&&xfrom!==WH)d.from=xfrom;else delete d.from;
+    if(oem){if(oem.on){d.oem=true;if(oem.spec)d.oemSpec=oem.spec;else delete d.oemSpec}else{delete d.oem;delete d.oemSpec}}
     if(exv){exv.equip.forEach(q=>{const o=(d.equip||[]).find(x=>eqLabel(x)===eqLabel(q));if(o&&o.back)q.back=true;if(o&&o.out)q.out=true});d.ev=exv.ev;d.equip=exv.equip;if(exv.daily)d.daily=true;else delete d.daily}
     if(tk!=null){if(tk)d.taker=tk;else delete d.taker;if(d.steps&&d.steps[0]&&tk)d.steps[0].by=tk}
     if(rd!=null){if(rd)d.rdate=rd;else delete d.rdate}
@@ -823,7 +830,7 @@ document.addEventListener('submit',e=>{
   if(cu&&cu.custom){doc.custom=true;doc.spec=cu.spec;doc.pk=newKey('p');if(formPhotos.length){doc.photos=formPhotos.length;putPhotos(doc.pk,formPhotos.slice())}}
   formPhotos=[];
   if(kind==='EX'){doc.returned=false;doc.ev=exv.ev;doc.equip=exv.equip;if(exv.daily)doc.daily=true}
-  if(kind==='PO')doc.paid=0;
+  if(kind==='PO'){doc.paid=0;if(oem&&oem.on){doc.oem=true;if(oem.spec)doc.oemSpec=oem.spec}}
   if(kind==='MO'&&moSrc&&$('#moSrcInfo'))doc.src=moSrc;
   moSrc=null;
   if(FLOW[kind])doc.steps=[{at:date,by:doc.taker||''}];
@@ -832,17 +839,23 @@ document.addEventListener('submit',e=>{
 
 /* ---------- 待辦工作 ---------- */
 // 把還沒完成的單據與需要注意的數字集中在一頁，不用一張一張點開看。
+// 進貨（半成品）還沒轉生產或還沒做完：驗收數量 − 由這張進貨開的生產單已領用的數量
+const bomMat=id=>Object.keys(S.bom||{}).some(p=>p!==id&&!item(p).off&&(S.bom[p]||[]).some(c=>c.item===id));
+function poPending(d){if(d.kind!=='PO'||d.imported||d.noMo||stepN(d)<2)return [];const mos=S.docs.filter(x=>x.kind==='MO'&&x.src===d.no);
+  return d.lines.filter(l=>l.item&&item(l.item).type==='半成品'&&bomMat(l.item)).map(l=>{const got=l.acc??l.qty,used=mos.reduce((a,m)=>a+m.lines.filter(x=>x.dir==='use'&&x.item===l.item).reduce((b,x)=>b+x.qty,0),0);return {item:l.item,got,used,rem:Math.round((got-used)*1000)/1000}}).filter(x=>x.rem>0)}
 function todoLists(){
   const st=stock();
   const so=S.docs.filter(d=>d.kind==='SO'&&!flowDone(d)),po=S.docs.filter(d=>d.kind==='PO'&&!flowDone(d)),ex=S.docs.filter(d=>d.kind==='EX'&&!d.returned);
   const low=S.items.filter(i=>!i.off&&st[i.id].cur<(+i.safety||0));
-  return {st,so,po,ex,low};
+  const pm=S.docs.filter(d=>poPending(d).length).sort((a,b)=>a.date.localeCompare(b.date));
+  return {st,so,po,ex,low,pm};
 }
-function todoCount(){try{const t=todoLists();return t.so.length+t.po.length+t.ex.length}catch(e){return 0}}
+function todoCount(){try{const t=todoLists();return t.so.length+t.po.length+t.ex.length+t.pm.length}catch(e){return 0}}
 const docSum=d=>d.lines.map(l=>lname(l)+(l.dir==='gift'?'（贈）':l.dir==='mat'?'（料）':'')+'×'+fmt(l.qty)).join('、');
 const lateArr=d=>{const end=d.arr2||d.arr;return d.kind==='SO'&&end&&end<today()&&stepN(d)<3};
 function todoHTML(){
-  const {st,so,po,ex,low}=todoLists(),mon=today().slice(0,7);
+  const {st,so,po,ex,low,pm}=todoLists(),mon=today().slice(0,7);
+  const pmRows=pm.map(d=>{const ps=poPending(d),started=S.docs.some(x=>x.kind==='MO'&&x.src===d.no);return `<tr class="click" data-doc="${d.no}"><td class="mono">${d.no}</td><td><span class="pill ${started?'mid':'warn'}">${started?'還沒做完':'還沒開生產單'}</span></td><td>${esc(d.party)}</td><td>${d.steps&&d.steps[1]?esc(d.steps[1].at):''}</td><td style="white-space:normal;min-width:14em">${esc(ps.map(x=>lname(x)+' 剩 '+fmt(x.rem)+(x.used?'（已領 '+fmt(x.used)+'／'+fmt(x.got)+'）':'')).join('、'))}</td></tr>`}).join('');
   const unpaid=S.docs.filter(d=>d.kind==='SO'&&!d.xfer).reduce((a,d)=>a+Math.max(0,amount(d)-paidOf(d)),0),unpay=S.docs.filter(d=>d.kind==='PO'&&stepN(d)>=2).reduce((a,d)=>a+Math.max(0,amount(d)-paidOf(d)),0);
   const waitRecv=S.docs.filter(d=>d.kind==='PO'&&stepN(d)<2).length,waitShip=S.docs.filter(d=>d.kind==='SO'&&stepN(d)<3).length;
   const out=ex.reduce((a,d)=>a+d.lines.reduce((b,l)=>b+l.qty,0),0);
@@ -860,11 +873,13 @@ function todoHTML(){
     ${tile('應付廠商未付',money(unpay),0,'tdPO')}
     ${tile('待到貨採購單',waitRecv,waitRecv,'tdPO')}
     ${tile('待出貨銷貨單',waitShip,waitShip,'tdSO')}
+    ${tile('進貨待生產',pm.length,pm.length,'tdPM')}
     ${tile('本月外展收入（含捐款）',money(S.docs.filter(d=>d.kind==='EX'&&d.date.startsWith(mon)).reduce((a,d)=>a+exSales(d)+(d.donation||0),0)),0,'tdEX')}
     ${tile('外展未歸還（件）',fmt(out),out,'tdEX')}
   </div>
   ${sec('tdSO','銷貨／調撥未完成',so.length,'<th>單號</th><th>進度</th><th>客戶／地點</th><th>到貨期間</th><th>接單人員</th><th>品項</th><th class="n">未收</th>',soRows,'銷貨單都完成了。')}
   ${sec('tdPO','採購未完成',po.length,'<th>單號</th><th>進度</th><th>廠商</th><th>下單日期</th><th>開單人員</th><th>品項</th><th class="n">未付</th>',poRows,'採購單都完成了。')}
+  ${sec('tdPM','進貨還沒轉生產／還沒做完',pm.length,'<th>採購單</th><th>狀態</th><th>廠商</th><th>驗收日</th><th>還沒生產的半成品</th>',pmRows,'驗收的半成品都已經開生產單做完了。')}
   ${sec('tdEX','外展未歸還',ex.length,'<th>單號</th><th>活動名稱</th><th>日期</th><th class="n">帶出件數</th><th>設備</th>',exRows,'外展都已歸還。')}
   ${sec('tdLow','需補貨品項',low.length,'<th>料號</th><th>品名</th><th>類別</th><th class="n">現有</th><th class="n">安全庫存</th><th class="n">差</th>',lowRows,'目前沒有低於安全庫存的品項。')}`;
 }
@@ -979,7 +994,7 @@ const feeSum=d=>(d.pays||[]).reduce((s,x)=>s+(+x.fee||0)+(+x.wire||0),0);
 document.addEventListener('input',e=>{if(!e.target.classList.contains('feein')||e.target.dataset.px!=='pay')return;const pi=$('#payIn'),bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no);
   if(pi&&d&&!pi.dataset.touched){const v=feeVal('pay');pi.value=Math.max(0,+pi.dataset.rest-v.fee-v.wire)}});
 document.addEventListener('input',e=>{if(e.target.id==='payIn')e.target.dataset.touched='1'});
-const SHIP_METHODS=['親送','自取','回頭車','蝦皮店到店','7-11 交貨便','全家店到店','萊爾富','OK 超商','黑貓宅急便','新竹物流','嘉里大榮','宅配通','中華郵政','順豐速運','其他'];
+const SHIP_METHODS=['親送','自取','回頭車','蝦皮店到店','7-11 交貨便','7-11 賣貨便','全家店到店','萊爾富','OK 超商','黑貓宅急便','新竹物流','嘉里大榮','宅配通','中華郵政','順豐速運','其他'];
 const TAKER={SO:'接單人員',PO:'開單人員'};
 document.addEventListener('change',e=>{if(!e.target.classList.contains('eqo'))return;const d=curDoc();if(!d||!d.equip)return;const q=d.equip[+e.target.dataset.i];if(!q)return;
   if(e.target.checked)q.out=true;else delete q.out;save();openDoc(d.no)});
@@ -1042,6 +1057,11 @@ document.addEventListener('input',e=>{if(e.target.id==='f-rdate')e.target.datase
 document.addEventListener('change',e=>{if(e.target.id==='f-date'){const r=$('#f-rdate');if(r&&!r.dataset.touched)r.value=e.target.value}});
 function arrVal(){const a=$('#f-arr1').value,b=$('#f-arr2').value;return a||b?{arr:a||b,arr2:a&&b&&b!==a?b:''}:{arr:'',arr2:''}}
 function arrText(d){const f=x=>x?x.replace(/-/g,'/'):'';return d.arr?f(d.arr)+(d.arr2?' ～ '+f(d.arr2):''):''}
+// 委外代工：品項可以選全部（含成品）
+function oemUI(on){const box=$('#oemBox');if(box)box.hidden=!on;const f=$('#docForm');if(!f||f.dataset.kind!=='PO')return;const t=on?'all':'buy';
+  f.querySelectorAll('.lines').forEach(lb=>{if(lb.dataset.type===t)return;lb.dataset.type=t;const ad=lb.parentElement.querySelector('.addline')||lb.nextElementSibling&&lb.nextElementSibling.querySelector('.addline');if(ad)ad.dataset.type=t;
+    [...lb.querySelectorAll('.line')].forEach(r=>{const id=r.querySelector('.li').value,q=r.querySelector('.lq').value,pv=r.querySelector('.lp')&&r.querySelector('.lp').value;r.insertAdjacentHTML('afterend',lineHTML('PO',t,''));const n=r.nextElementSibling;r.remove();if(id)setPick(n.querySelector('.li'),id);n.querySelector('.lq').value=q;if(n.querySelector('.lp'))n.querySelector('.lp').value=pv||''})})}
+document.addEventListener('change',e=>{if(e.target.id==='f-oem')oemUI(e.target.checked)});
 function customVal(){const c=$('#f-custom');return c?{custom:c.checked,spec:$('#f-spec').value.trim()}:null}
 function shrinkPhoto(f){return new Promise((ok,bad)=>{const r=new FileReader();r.onerror=bad;r.onload=()=>{const im=new Image();im.onerror=bad;im.onload=()=>{
   const k=Math.min(1,1280/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
@@ -1091,6 +1111,7 @@ function fillEdit(){
   if($('#f-rdate')){$('#f-rdate').value=d.rdate||d.date;if(d.rdate)$('#f-rdate').dataset.touched='1'}
   if($('#f-fee')){$('#f-fee').value=d.fee||'';$('#f-disc').value=d.discount?-d.discount:''}
   if($('#f-arr1')){$('#f-arr1').value=d.arr||'';$('#f-arr2').value=d.arr2||''}
+  if($('#f-oem')){$('#f-oem').checked=!!d.oem;$('#f-oemSpec').value=d.oemSpec||'';oemUI(!!d.oem)}
   if($('#f-custom')){$('#f-custom').checked=!!d.custom;$('#f-spec').value=d.spec||'';$('#customBox').hidden=!d.custom;const cs=d.lines.filter(l=>l.other);if(cs.length)$('#cuLines').innerHTML=cs.map(cuRow).join('')}
   const names=[...new Set(S.docs.flatMap(x=>(x.log||[]).map(g=>g.by).concat((x.steps||[]).map(s=>s.by))).filter(Boolean))];
   $('#docForm').insertAdjacentHTML('beforeend',`<datalist id="st-bys2">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`);
@@ -1124,7 +1145,7 @@ function openDoc(no){
 }
 function paperHTML(d,quote){
   quote=quote&&d.kind==='SO'&&!d.xfer;
-  const k=quote?{...KINDS.SO,name:'估價報價單',sign:['報價人','客戶確認','主管']}:d.xfer?{...KINDS.SO,name:'調撥單',party:'調撥到',sign:['出貨人','收貨人','主管']}:KINDS[d.kind];let head,rows,foot='';
+  const k=d.oem?{...KINDS.PO,name:'委外代工單',party:'代工廠商'}:quote?{...KINDS.SO,name:'估價報價單',sign:['報價人','客戶確認','主管']}:d.xfer?{...KINDS.SO,name:'調撥單',party:'調撥到',sign:['出貨人','收貨人','主管']}:KINDS[d.kind];let head,rows,foot='';
   if(d.kind==='MO'){head='<th>區分</th><th>料號</th><th>品名</th><th>單位</th><th class="n">數量</th>';
     rows=d.lines.map(l=>`<tr><td>${l.dir==='use'?'領用半成品':'完工成品'}</td><td>${esc(item(l.item).code)}</td><td>${esc(item(l.item).name)}</td><td>${esc(item(l.item).unit)}</td><td class="n">${fmt(l.qty)}</td></tr>`).join('');}
   else if(d.kind==='EX'){const pr=exPrice;head='<th>#</th><th>料號</th><th>品名</th><th class="n">帶出</th><th class="n">歸還</th><th class="n">售出</th><th class="n">售價</th><th class="n">金額</th>';
@@ -1146,6 +1167,7 @@ function paperHTML(d,quote){
     <div class="meta">${d.kind==='EX'?`<div><span>${k.party}：</span>${esc(d.party)}</div><div><span>日期：</span>${d.date}</div>${d.ev&&(d.ev.link||d.ev.note)?`<div style="grid-column:1/-1;white-space:pre-wrap;word-break:break-all"><span>活動細節：</span>${esc([d.ev.link,d.ev.note].filter(Boolean).join('\n'))}</div>`:''}`:`<div><span>日期：</span>${d.date}</div>${d.xfer?`<div><span>調撥從：</span>${esc(d.from||WH)}</div>`:''}<div><span>${k.party}：</span>${esc(d.party)}</div>`}${d.arr?`<div><span>到貨期間：</span>${arrText(d)}</div>`:''}${d.taker?`<div><span>${TAKER[d.kind]||'開單人員'}：</span>${esc(d.taker)}</div>`:''}${d.pays&&d.pays.length?`<div><span>收款方式：</span>${esc([...new Set(d.pays.map(p=>p.method))].join('、'))}</div>`:''}${partyInfo(d)}${shipInfo(d)}</div>
     <table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody>${foot?`<tfoot>${foot}</tfoot>`:''}</table>
     ${d.kind==='EX'?exPaperExtra(d):''}
+    ${d.oem&&d.oemSpec?`<div style="white-space:pre-wrap"><b>代工內容：</b>${esc(d.oemSpec)}</div>`:''}
     ${d.custom?`<div style="white-space:pre-wrap"><b>客訂說明：</b>${esc(d.spec||'')}</div>`:''}
     ${combo?'':'<div class="grow"></div>'}
     <div class="sign">${k.sign.map(s=>`<div>${s}</div>`).join('')}</div>
@@ -1209,7 +1231,7 @@ function receiptHTML(d){
 // 列印存成 PDF 時，瀏覽器用網頁標題當檔名：YYYYMMDD銷貨單-客戶
 const PRINT_NAME={SO:'銷貨單',PO:'採購單',MO:'生產單',EX:'外展單'};
 function printTitle(){const bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no);if(!d||$('#overlay').hidden)return;
-  document.title=((d.date||'').replace(/-/g,'')+(quoteMode==='photo'?'客訂照片':quoteMode?'估價報價單':d.xfer?'調撥單':PRINT_NAME[d.kind]||'單據')+(d.party?'-'+d.party:'')).replace(/[\\/:*?"<>|]/g,'_')}
+  document.title=((d.date||'').replace(/-/g,'')+(quoteMode==='photo'?'客訂照片':quoteMode?'估價報價單':d.oem?'代工單':d.xfer?'調撥單':PRINT_NAME[d.kind]||'單據')+(d.party?'-'+d.party:'')).replace(/[\\/:*?"<>|]/g,'_')}
 window.addEventListener('beforeprint',printTitle);
 let quoteMode=false;
 window.addEventListener('afterprint',()=>{document.title='小團隊進銷存';if(quoteMode){quoteMode=false;const bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no),pp=$('#overlay .paper');if(d&&pp)pp.outerHTML=paperHTML(d)}});
