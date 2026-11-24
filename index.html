@@ -491,7 +491,7 @@ const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth
 const lname=l=>l.other?l.name:item(l.item).name,lcode=l=>l.other?'':item(l.item).code,exPrice=l=>l.price??(l.other?0:item(l.item).price)??0;
 const exSales=d=>d.returned?d.lines.reduce((a,l)=>a+(l.qty-(l.ret||0))*exPrice(l),0):0;
 // 設備清單：一般設備，加上三台機器；機器勾了才展開它的配件（g = 所屬機器）。
-const EQ_BASE=['零用金','捐款箱','LinePay','TWQR','桌巾','外展桌','板凳','電風扇','收據','價格牌','酒精','衛生紙','延長線','大洋傘+腳'];
+const EQ_BASE=['零用金','捐款箱','LinePay','TWQR','DM','感謝卡','桌巾','外展桌','板凳','電風扇','收據','價格牌','酒精','衛生紙','延長線','大洋傘+腳'];
 const EQ_GROUPS=[['爆米花機',['試吃罐','鹹甜 2KG 裝爆米花','免洗杯','湯匙','手套']],['棉花糖機',['竹籤','飲用水','溫度計']],['茶桶',['免洗杯']]];
 // 平日外展只帶這幾樣，品項只有爆米花 100g
 const EQ_DAILY=['零用金','零錢箱','計算機','提籃'];
@@ -1108,7 +1108,7 @@ function autoPay(d,by){const F=flowOf(d);if(!F)return false;const nx=F[stepN(d)]
 function openDoc(no){
   const d=S.docs.find(x=>x.no===no);if(!d)return;const k=KINDS[d.kind];delArm=false;
   let action='';
-  if(d.kind==='EX')action=`${exInfoHTML(d)}<div class="pinfo" style="display:flex;flex-direction:column;gap:10px"><p class="sub" style="margin:0">活動結束後：登記歸還、售價與捐款</p><p class="hint" style="margin:0">這一區只用來登記帶回來的數量和收入。${can('edit')?'要改帶出的品項、數量、設備或活動資料，請按最上面的「修改這張單」。':''}</p><div class="lines">${d.lines.map((l,i)=>`<div class="line"><label class="f"><span class="lcap">品項</span><input value="${esc(lname(l))}（帶出 ${l.qty}）" disabled></label><label class="f">歸還數<input id="ret-${i}" class="ret" type="number" min="0" step="any" max="${l.qty}" value="${l.ret||0}"></label><label class="f">售價<input id="prc-${i}" class="prc" type="number" min="0" step="any" value="${exPrice(l)}"></label><span></span></div>`).join('')}</div>
+  if(d.kind==='EX')action=`${exInfoHTML(d)}<div class="pinfo" style="display:flex;flex-direction:column;gap:10px"><p class="sub" style="margin:0">活動結束後：登記歸還、售價與捐款</p><p class="hint" style="margin:0">這一區只用來登記帶回來的數量和收入。${role==='admin'?'管理者可以直接在這裡改帶出數，會留下修改紀錄。':''}${can('edit')?'要改帶出的品項、數量、設備或活動資料，請按最上面的「修改這張單」。':''}</p><div class="lines">${d.lines.map((l,i)=>`<div class="line"><label class="f"><span class="lcap">品項</span><input value="${esc(lname(l))}${role==='admin'?'':`（帶出 ${l.qty}）`}" disabled></label>${role==='admin'?`<label class="f">帶出數<input id="out-${i}" class="outq" type="number" min="0" step="any" value="${l.qty}"></label>`:''}<label class="f">歸還數<input id="ret-${i}" class="ret" type="number" min="0" step="any" max="${l.qty}" value="${l.ret||0}"></label><label class="f">售價<input id="prc-${i}" class="prc" type="number" min="0" step="any" value="${exPrice(l)}"></label>${role==='admin'?'':'<span></span>'}</div>`).join('')}</div>
     ${(d.equip||[]).length?`<p class="sub">設備帶回確認</p><div class="eqlist">${d.equip.map((q,i)=>`<label><input type="checkbox" class="eqb" data-i="${i}" ${q.back?'checked':''}>${esc(eqLabel(q))}${q.note?'（'+esc(q.note)+'）':''}</label>`).join('')}</div>`:''}
     <div class="grid-f"><label class="f">捐款金額<input id="donIn" type="number" min="0" step="any" value="${d.donation||0}"></label></div>
     ${d.returned?`<div class="row"><span>銷售金額 <b class="mono">${money(exSales(d))}</b>，捐款 <b class="mono">${money(d.donation)}</b>，合計收入 <b class="mono">${money(exSales(d)+(d.donation||0))}</b></span></div>`:''}
@@ -1240,7 +1240,9 @@ $('#overlay').addEventListener('click',async e=>{
     const ap=autoPay(d,by0);save();render();openDoc(d.no);toast(d.no+' '+nx.done+(ap?'，款項已'+(d.kind==='PO'?'付':'收')+'清，付款步驟自動完成':'')+(nx.k==='ship'&&!d.xfer?'，記得列印出貨單＋收據隨貨附上':''));return}
   if(e.target.id==='stBack'){if(stepN(d)>1&&can('back')){const f=flowOf(d)[stepN(d)-1];{const st=d.steps.pop();if(st.prevPaid!=null||st.hadPaid===false){if(st.hadPaid===false)delete d.paid;else d.paid=st.prevPaid;if(d.pays&&d.pays.length&&d.pays[d.pays.length-1].step)d.pays.pop()}
         if(f.k==='recv')d.lines.forEach(l=>delete l.acc);if(d.xfer&&f.k==='ship')posUnship(d)}save();render();openDoc(d.no);toast('已退回，取消「'+f.t+'」')}return}
-  if(e.target.id==='saveRet'){document.querySelectorAll('.ret').forEach((inp,i)=>{d.lines[i].ret=Math.max(0,Math.min(d.lines[i].qty,+inp.value||0));d.lines[i].price=+$('#prc-'+i).value||0});d.donation=+$('#donIn').value||0;document.querySelectorAll('.eqb').forEach(c=>{const q=d.equip[+c.dataset.i];if(q){if(c.checked)q.back=true;else delete q.back}});d.returned=true;save();render();openDoc(d.no);toast('已登記歸還');return}
+  if(e.target.id==='saveRet'){if(role==='admin'){const ch=[];document.querySelectorAll('.outq').forEach((inp,i)=>{const l=d.lines[i],v=Math.max(0,+inp.value||0);if(l&&v!==l.qty){ch.push(lname(l)+' 帶出：'+fmt(l.qty)+' → '+fmt(v));l.qty=v}});
+      if(ch.length){const entry={at:new Date().toLocaleString('zh-TW',{hour12:false}),by:'管理者',reason:'歸還時調整帶出數量',changes:ch};(d.log=d.log||[]).push(entry);S.audit.unshift({no:d.no,action:'修改',...entry})}}
+    document.querySelectorAll('.ret').forEach((inp,i)=>{d.lines[i].ret=Math.max(0,Math.min(d.lines[i].qty,+inp.value||0));d.lines[i].price=+$('#prc-'+i).value||0});d.donation=+$('#donIn').value||0;document.querySelectorAll('.eqb').forEach(c=>{const q=d.equip[+c.dataset.i];if(q){if(c.checked)q.back=true;else delete q.back}});d.returned=true;save();render();openDoc(d.no);toast('已登記歸還');return}
   if(e.target.id==='savePay'){const v=+$('#payIn').value||0,fw=feeVal('pay');if(v<=0&&!(fw.fee+fw.wire>0))return;const pb=$('#payBy').value.trim();if(!pb){toast('請先填經手人');$('#payBy').focus();return}
     if($('#payMethod').value===PREPAY&&v>prepayBal(d.party)+0.004){toast('預付款餘額只剩 '+money(prepayBal(d.party))+'，不夠扣');return}
     d.paid=paidOf(d)+v+fw.fee+fw.wire;(d.pays=d.pays||[]).push({at:today(),amt:v,method:$('#payMethod').value,by:pb,...fw.rec});
