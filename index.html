@@ -964,17 +964,26 @@ let formPhotos=[];const PH={};
 const STORES=['草屯門市','南投國道門市','樹德門市','埔里酒廠門市'];
 /* 門市 POS 連動：調撥到門市＝門市待收貨；從門市調出＝門市庫存扣掉。門市在 POS 確認收貨後，這張調撥單自動完成「到貨確認」。 */
 const POSK={'埔里酒廠門市':'puli','樹德門市':'shude','南投國道門市':'nantou','草屯門市':'caotun'};
-function posShip(d){if(!window.jxcPos)return;const to=POSK[d.party],fr=POSK[d.from],k=pid(d.no),st=d.steps[d.steps.length-1]||{};
-  const lines=d.lines.filter(l=>l.item&&+l.qty>0).map(l=>({id:l.item,name:item(l.item).name,qty:+l.qty}));
-  if(to)jxcPos.set(`stores/${to}/receipts/x${k}`,{id:'x'+k,store:to,date:st.at||today(),src:(d.from&&d.from!==WH?d.from:'工廠')+'調撥',doc:d.no,lines,status:'待收'}).catch(()=>toast('門市 POS 沒有收到這張調撥，請檢查網路'));
-  if(fr)lines.forEach((l,i)=>jxcPos.set(`stores/${fr}/adj/x${k}_${i}`,{id:l.id,name:l.name,aid:'x'+k+'_'+i,date:st.at||today(),qty:-l.qty,reason:'調撥到'+d.party+'（'+d.no+'）',by:st.by||''}).catch(()=>{}));}
-async function posUnship(d){if(!window.jxcPos)return;const to=POSK[d.party],fr=POSK[d.from],k=pid(d.no);
-  try{if(to){const r=await jxcPos.get(`stores/${to}/receipts/x${k}`);if(r&&r.status==='待收')await jxcPos.remove(`stores/${to}/receipts/x${k}`);else if(r)toast('門市已經確認收貨，POS 的收貨紀錄沒有刪掉，請到門市盤點調整')}
+// 調撥地點是自己打字的，名稱不完全一樣也認得出是哪間門市
+const posKey=n=>{n=String(n||'');if(POSK[n])return POSK[n];return n.includes('埔里')||n.includes('酒廠')?'puli':n.includes('樹德')?'shude':n.includes('國道')?'nantou':n.includes('草屯')&&n.includes('門市')?'caotun':''};
+function posReceipt(d){const to=posKey(d.party),k=pid(d.no),sh=stepN(d)>=3,st=sh?d.steps[2]:{};
+  return {id:'x'+k,store:to,date:(sh&&st.at)||d.date||today(),src:(d.from&&d.from!==WH?d.from:'工廠')+'調撥',doc:d.no,shipped:sh,
+    lines:d.lines.filter(l=>l.item&&+l.qty>0).map(l=>({id:l.item,name:item(l.item).name,qty:+l.qty})),status:'待收'}}
+async function posShip(d){if(!window.jxcPos)return;const to=posKey(d.party),fr=posKey(d.from),k=pid(d.no),st=d.steps[d.steps.length-1]||{};
+  try{if(to){const cur=await jxcPos.get(`stores/${to}/receipts/x${k}`);if(!cur||cur.status==='待收')await jxcPos.set(`stores/${to}/receipts/x${k}`,posReceipt(d))}}catch(e){toast('門市 POS 沒有收到這張調撥，請檢查網路')}
+  if(fr)d.lines.filter(l=>l.item&&+l.qty>0).forEach((l,i)=>jxcPos.set(`stores/${fr}/adj/x${k}_${i}`,{id:l.item,name:item(l.item).name,aid:'x'+k+'_'+i,date:st.at||today(),qty:-l.qty,reason:'調撥到'+d.party+'（'+d.no+'）',by:st.by||''}).catch(()=>{}));}
+async function posUnship(d){if(!window.jxcPos)return;const fr=posKey(d.from),k=pid(d.no);
+  try{const to=posKey(d.party);if(to){const r=await jxcPos.get(`stores/${to}/receipts/x${k}`);if(r&&r.status==='待收')await jxcPos.set(`stores/${to}/receipts/x${k}`,posReceipt(d));else if(r)toast('門市已經確認收貨，POS 的收貨紀錄沒有刪掉，請到門市盤點調整')}
     if(fr)await Promise.all(d.lines.map((l,i)=>jxcPos.remove(`stores/${fr}/adj/x${k}_${i}`)))}catch(e){}}
+// 打開進銷存時：還沒到貨的門市調撥單都放到 POS 待收貨（整張單一筆）；門市確認收到後，這張單剩下的步驟（出貨、到貨）自動完成。
 function posWatch(){if(!window.jxcPos||posWatch.on)return;posWatch.on=true;
-  jxcPos.watchReceipts(list=>{let ch=false;list.forEach(r=>{if(!r.doc||r.status!=='已收')return;const d=S.docs.find(x=>x.no===r.doc);
-    if(!d||!d.xfer)return;const nx=flowOf(d)[stepN(d)];if(!nx||nx.k!=='arrive')return;
-    d.steps.push({at:r.recvDate||today(),by:(r.by||'門市')+'（POS 確認）'});ch=true});if(ch){save();scheduleRender()}})}
+  jxcPos.watchReceipts(list=>{let ch=false;const byDoc=new Map(list.filter(r=>r.doc).map(r=>[r.doc,r]));
+    list.forEach(r=>{if(!r.doc||r.status!=='已收')return;const d=S.docs.find(x=>x.no===r.doc);if(!d||!d.xfer)return;
+      const F=flowOf(d);while(stepN(d)<F.length){d.steps.push({at:r.recvDate||today(),by:(r.by||'門市')+'（POS 確認收貨）'});ch=true}});
+    S.docs.forEach(d=>{if(!(d.kind==='SO'&&d.xfer)||flowDone(d))return;const to=posKey(d.party);if(!to)return;const r=byDoc.get(d.no);
+      if(!r||(r.status==='待收'&&(r.shipped!==(stepN(d)>=3)||r.store!==to)))jxcPos.set(`stores/${to}/receipts/x${pid(d.no)}`,posReceipt(d)).catch(()=>{})});
+    list.forEach(r=>{if(r.doc&&r.status==='待收'&&!S.docs.some(d=>d.no===r.doc&&d.xfer))jxcPos.remove(`stores/${r.store}/receipts/${r.id}`).catch(()=>{})});
+    if(ch){save();scheduleRender()}})}
 const xferLocs=()=>[...new Set([WH,...STORES,...S.docs.filter(d=>d.kind==='SO'&&d.xfer).map(d=>d.party).filter(p=>p&&p!=='—')])];
 function typeUI(){const x=$('#f-type')&&$('#f-type').value==='xfer';const l=$('#f-partyLbl');if(l)l.textContent=x?'調撥到（地點）':KINDS.SO.party;if(x&&$('#partyInfo'))$('#partyInfo').hidden=true;
   const f=$('#f-party');if(!f)return;let dl=$('#f-xlocs');if(!dl){f.insertAdjacentHTML('afterend','<datalist id="f-xlocs"></datalist>');dl=$('#f-xlocs')}
