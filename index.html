@@ -345,7 +345,8 @@ const flowDone=d=>!flowOf(d)||stepN(d)>=flowOf(d).length;
 const docDone=d=>d.kind==='EX'?!!d.returned:flowDone(d);
 const hasStage=kind=>!!FLOW[kind]||kind==='EX';
 const counts=d=>!STOCK_AT[d.kind]||stepN(d)>=STOCK_AT[d.kind];
-function migrate(){(S.customers||[]).forEach(c=>{if(c.svc==='網購（蝦皮／官網）')c.svc='網購（蝦皮／官網／7-11）'});S.docs.forEach(d=>{if(!FLOW[d.kind]||d.steps)return;const F=FLOW[d.kind];
+const SVC_NET='網購（蝦皮／官網／7-11）',oldNet=v=>/^\s*網購/.test(v||'')&&v!==SVC_NET;
+function migrate(){(S.customers||[]).forEach(c=>{if(oldNet(c.svc))c.svc=SVC_NET});S.docs.forEach(d=>{if(!FLOW[d.kind]||d.steps)return;const F=FLOW[d.kind];
   d.steps=F.map(()=>({at:d.date,by:''}));if(d.kind==='SO'&&(d.paid||0)<amount(d))d.steps.pop()})}
 const PERMS=[['edit','修改單據（會留下修改紀錄）'],['del','刪除單據'],['back','退回流程步驟'],['items','新增、修改品項（價格、期初、安全庫存、匯入）'],['bom','設定 BOM'],['contactAdd','新增顧客／廠商'],['contactEdit','修改既有的顧客／廠商資料'],['data','重設資料、還原備份']];
 function hashPw(t){let h=5381;for(const c of 'erp|'+t)h=((h<<5)+h+c.codePointAt(0))>>>0;return 'h'+h.toString(36)+t.length}
@@ -566,7 +567,7 @@ function homeHTML(){
   const COLS=[['code','料號',i=>i.code],['name','品名',i=>i.name],['unit','規格',i=>i.unit],['type','類別',i=>i.type],['safety','安全庫存',i=>+i.safety||0,1],['cur','現有',i=>st[i.id].cur,1],['st','狀態',i=>low(i)?0:1],
     ['po','採購入',i=>st[i.id].po,1],['use','生產領用',i=>st[i.id].use,1],['made','生產完成',i=>st[i.id].made,1],['so','出貨',i=>st[i.id].so,1],['exOut','外展帶出',i=>st[i.id].exOut,1],['exRet','外展歸還',i=>st[i.id].exRet,1]];
   let list=S.items.filter(i=>(homeFilter==='all'||i.type===homeFilter)&&(!i.off||st[i.id].cur));
-  const sc=COLS.find(c=>c[0]===homeSort.k);if(sc){const g=sc[2];list=list.slice().sort((a,b)=>{const x=g(a),y=g(b);return (sc[3]||sc[0]==='st'?(x-y):String(x??'').localeCompare(String(y??''),'zh-Hant-TW',{numeric:true}))*homeSort.d})}
+  const sc=COLS.find(c=>c[0]===homeSort.k);list=list.slice().sort((a,b)=>{if(!!a.off!==!!b.off)return a.off?1:-1;if(!sc)return 0;const g=sc[2];const x=g(a),y=g(b);return (sc[3]||sc[0]==='st'?(x-y):String(x??'').localeCompare(String(y??''),'zh-Hant-TW',{numeric:true}))*homeSort.d});
   const rows=list.map(i=>{const r=st[i.id];
     return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}${i.off?' <span class="pill mid">停用</span>':''}</td><td>${esc(i.unit)}</td><td>${i.type}</td><td class="n">${fmt(i.safety)}</td><td class="n"><b>${fmt(r.cur)}</b></td><td>${low(i)?'<span class="pill warn">需補貨</span>':'<span class="pill ok">正常</span>'}</td><td class="n">${fmt(r.po)}</td><td class="n">${fmt(r.use)}</td><td class="n">${fmt(r.made)}</td><td class="n">${fmt(r.so)}</td><td class="n">${fmt(r.exOut)}</td><td class="n">${fmt(r.exRet)}</td></tr>`}).join('');
   const th=COLS.map(c=>`<th class="hsort${c[3]?' n':''}" data-k="${c[0]}" style="cursor:pointer;user-select:none" title="點一下排序，再點一下反過來">${c[1]}${homeSort.k===c[0]?(homeSort.d>0?' ▲':' ▼'):''}</th>`).join('');
@@ -1592,7 +1593,7 @@ const VF=[['code','廠商編號'],['name','廠商名稱'],['svc','服務類型']
 function svcOptions(isC){
   const base=isC?['企業禮品','機關團體','社福團體','個人','門市通路','網購（蝦皮／官網／7-11）']
     :[...new Set(S.items.map(i=>(i.cat||'').replace(/^\d+\s*/,'')).filter(Boolean)),'印刷','貨運物流','加工代工','制服'];
-  return [...new Set([...base,...(isC?S.customers:S.vendors).map(c=>c.svc).filter(Boolean)])];
+  return [...new Set([...base,...(isC?S.customers:S.vendors).map(c=>c.svc).filter(v=>v&&!(isC&&oldNet(v)))])];
 }
 let cSort={k:'',d:1};
 document.addEventListener('click',e=>{const th=e.target.closest('th.csort');if(!th)return;const k=th.dataset.k;cSort=cSort.k===k?(cSort.d>0?{k,d:-1}:{k:'',d:1}):{k,d:1};const q=$('#cq')&&$('#cq').value;render();if(q){$('#cq').value=q;$('#cq').dispatchEvent(new Event('input',{bubbles:true}))}});
