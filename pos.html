@@ -81,6 +81,12 @@ main{padding-block:10px 40px}
 .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:0 6px 6px;max-height:300px;overflow:auto}
 @media (max-width:480px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .tile{border:0;border-radius:4px;background:var(--tile);color:var(--tile-fg);min-height:62px;padding:6px 4px;font-weight:700;font-size:.86rem;line-height:1.25;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px}
+.tile.blank{background:var(--bg);border:1px dashed var(--line);color:var(--muted);cursor:default}
+.tile.combo{background:var(--tab);color:#fff}
+.favgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.favgrid label{display:flex;flex-direction:column;gap:2px;font-size:.75rem;color:var(--muted);min-width:0}
+.favgrid input{width:100%;min-width:0;font-size:.9rem;color:var(--fg)}
+.favgrid span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 .tile small{font-weight:500;font-size:.74rem;opacity:.85}
 .tile.low small{color:#7a1500;opacity:1}
 .inputline{display:flex;align-items:center;gap:8px;background:var(--head);color:var(--head-fg);padding:6px 10px;font-size:.9rem}
@@ -209,6 +215,7 @@ select,input[type=date],input[type=month],input[type=number],input[type=text],in
   <section id="v-in" hidden>
     <h2>工廠送來的貨（待收貨）</h2>
     <p class="hint">工廠在進銷存開調撥單、按「出貨」後，就會出現在這裡。貨到後點「確認收到」，數量不對可以先改再確認，門市庫存才會加上去。</p>
+    <div class="row" style="margin-bottom:8px"><input type="search" id="pendFind" placeholder="輸入調撥單號找（例：SO-）" style="flex:1 1 220px" autocomplete="off"></div>
     <div class="cards" id="pendList"></div>
     <h2>其他進貨（不是工廠送的）</h2>
     <div class="card"><div class="row">
@@ -272,9 +279,23 @@ select,input[type=date],input[type=month],input[type=number],input[type=text],in
       </div>
       <div>
         <h2>門市商品按鈕</h2>
-        <p class="hint">先選門市（會跟收銀畫面的門市同步）。勾選的商品會出現在該門市收銀畫面的「常用」。「免稅」打勾的品項開發票時不算稅，跟應稅商品一起賣會提醒分開開。品名和單價（含稅價）跟著進銷存的品項清單，要改請到進銷存改。</p>
+        <p class="hint">先選門市（會跟收銀畫面的門市同步）。勾選的商品才會出現在收銀畫面的各個分類標籤底下，沒勾的不顯示。「常用」另外在下面的 4×4 格子設定。「免稅」打勾的品項開發票時不算稅，跟應稅商品一起賣會提醒分開開。品名和單價（含稅價）跟著進銷存的品項清單，要改請到進銷存改。</p>
         <div class="row"><select id="pkStore"></select><input type="search" id="pkSearch" placeholder="搜尋品名" style="flex:1 1 140px"></div>
         <div id="pkList" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="two">
+      <div>
+        <h2>常用 4×4 格子（<span id="favStoreName"></span>）</h2>
+        <p class="hint">每格輸入料號（例：103008-003）或組合代碼（例：G01），收銀畫面的「常用」會照這個位置排。空白的格子就空著。</p>
+        <div class="favgrid" id="favGrid"></div>
+        <datalist id="codeList"></datalist>
+      </div>
+      <div>
+        <h2>組合優惠</h2>
+        <p class="hint">例如「爆米花 2 包 90 元」。內容用「料號*數量」，多項用逗號隔開。賣出時會扣每一項的庫存，四間門市共用。</p>
+        <div class="tbl"><table><thead><tr><th class="l">代碼</th><th class="l">名稱</th><th>售價</th><th class="l">內容</th><th></th></tr></thead><tbody id="cbBody"></tbody></table></div>
+        <button class="btn primary" id="cbAdd" style="margin-top:8px">新增組合</button>
       </div>
     </div>
   </section>
@@ -332,6 +353,8 @@ let ME=null;            // {email,name,role,store}
 let CAT=[],CATM={};     // 商品
 let PICKS={};           // {store:[id]}
 let FREE={};            // 免稅品項 {id:true}，存在 jxc/pos/picks/_tax
+let FAV={};             // 常用 4×4：{store:[16 個料號或組合代碼]}，存在 jxc/pos/picks/fav_<門市>
+let COMBO=[];           // 組合優惠 [{code,name,price,parts:[{id,qty}]}]，存在 jxc/pos/picks/_combo
 const D={};STORES.forEach(([k])=>D[k]={sales:{},receipts:{},adj:{}});
 let USERS={};           // 擁有者才讀得到
 let view="pos",started=false;
@@ -378,9 +401,9 @@ auth.onAuthStateChanged(async u=>{
 async function start(){
   gate("<h2>門市 POS</h2><p>讀取資料中…</p>");
   try{
-    if(isStaff())await syncCatalog();
+    if(isStaff()){await syncCatalog();syncXfer().catch(e=>console.warn("調撥同步失敗",e))}
     fdb.ref("jxc/pos/catalog").on("value",s=>{CAT=dec(s.val())||[];CATM=Object.fromEntries(CAT.map(x=>[x.id,x]));refresh()});
-    fdb.ref("jxc/pos/picks").on("value",s=>{const v=s.val()||{};PICKS={};STORES.forEach(([k])=>PICKS[k]=dec(v[k])||[]);FREE=dec(v._tax)||{};refresh()});
+    fdb.ref("jxc/pos/picks").on("value",s=>{const v=s.val()||{};PICKS={};STORES.forEach(([k])=>{PICKS[k]=dec(v[k])||[];FAV[k]=dec(v["fav_"+k])||[]});FREE=dec(v._tax)||{};COMBO=dec(v._combo)||[];refresh()});
     for(const s of myStores())fdb.ref("jxc/pos/stores/"+s).on("value",snap=>{const v=snap.val()||{};
       for(const t of ["sales","receipts","adj"]){const o={};Object.entries(v[t]||{}).forEach(([k,x])=>{const d=dec(x);if(d)o[k]=d});D[s][t]=o}refresh()},
       e=>{syncTag("讀取失敗");gate(`<h2>讀不到資料</h2><p>可能是資料庫規則還沒更新，請聯絡管理者。</p><button class="btn" id="signOut">登出</button>`)});
@@ -401,17 +424,31 @@ async function syncCatalog(){
   if(canon(cur)!==canon(out))await fdb.ref("jxc/pos/catalog").set(enc(out));
 }
 
+// 進銷存裡還沒到貨的門市調撥單，整張放進 POS 待收貨（本會同仁打開 POS 或進銷存時都會補）。
+const pid=s=>{s=String(s);return /^[A-Za-z0-9_\-~:@+]{1,200}$/.test(s)?s:"u"+[...new TextEncoder().encode(s)].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,190)};
+const posKey=n=>{n=String(n||"");const m={"埔里酒廠門市":"puli","樹德門市":"shude","南投國道門市":"nantou","草屯門市":"caotun"};if(m[n])return m[n];
+  return n.includes("埔里")||n.includes("酒廠")?"puli":n.includes("樹德")?"shude":n.includes("國道")?"nantou":n.includes("草屯")&&n.includes("門市")?"caotun":""};
+async function syncXfer(){
+  const snap=await fdb.ref("jxc/docs").get(),docs=[];snap.forEach(ch=>{const d=dec(ch.val());if(d&&d.kind==="SO"&&d.xfer)docs.push(d)});
+  const all=await fdb.ref("jxc/pos/stores").get(),have=new Set();
+  all.forEach(st=>{const r=st.val()&&st.val().receipts||{};Object.values(r).forEach(v=>{const x=dec(v);if(x&&x.doc)have.add(x.doc)})});
+  for(const d of docs){const n=(d.steps||[]).length,to=posKey(d.party);if(!to||n>=4||have.has(d.no))continue;const sh=n>=3,st=sh?d.steps[2]:{},k=pid(d.no);
+    await put(`stores/${to}/receipts/x${k}`,{id:"x"+k,store:to,date:(sh&&st.at)||d.date||today(),src:(d.from&&d.from!=="倉庫"?d.from:"工廠")+"調撥",doc:d.no,shipped:sh,
+      lines:(d.lines||[]).filter(l=>l.item&&+l.qty>0).map(l=>({id:l.item,name:iname(l.item)!=="(已刪除品項)"?iname(l.item):(l.name||""),qty:+l.qty})),status:"待收"})}
+}
+
 /* ---------- 計算 ---------- */
 const arr=(s,t)=>Object.values(D[s][t]);
 function moves(s,id,from,to){
   let inn=0,sold=0,amt=0,adj=0;
   arr(s,"receipts").forEach(r=>{if(r.status==="已收"){const d=r.recvDate||r.date;if(d>=from&&d<=to)r.lines.forEach(l=>{if(l.id===id)inn+=l.qty})}});
-  arr(s,"sales").forEach(x=>{if(!x.void&&x.date>=from&&x.date<=to)x.lines.forEach(l=>{if(l.id===id){sold+=l.qty;amt+=l.qty*l.price}})});
+  arr(s,"sales").forEach(x=>{if(!x.void&&x.date>=from&&x.date<=to)x.lines.forEach(l=>{
+    if(l.parts)l.parts.forEach(p=>{if(p.id===id){sold+=l.qty*p.qty;amt+=l.qty*(p.amt||0)}});else if(l.id===id){sold+=l.qty;amt+=l.qty*l.price}})});
   arr(s,"adj").forEach(a=>{if(a.id===id&&a.date>=from&&a.date<=to)adj+=a.qty});
   return {inn,sold,amt,adj};
 }
 const stockOf=(s,id,to="9999-12-31")=>{const m=moves(s,id,"0000",to);return m.inn-m.sold+m.adj};
-const storeItems=s=>[...new Set([...(PICKS[s]||[]),...arr(s,"receipts").flatMap(r=>r.lines.map(l=>l.id)),...arr(s,"adj").map(a=>a.id)])].filter(id=>CATM[id]||stockOf(s,id)!==0);
+const storeItems=s=>[...new Set([...(PICKS[s]||[]),...arr(s,"sales").flatMap(x=>x.lines.flatMap(l=>l.parts?l.parts.map(p=>p.id):[l.id])),...arr(s,"receipts").flatMap(r=>r.lines.map(l=>l.id)),...arr(s,"adj").map(a=>a.id)])].filter(id=>CATM[id]||stockOf(s,id)!==0);
 
 /* ---------- 分頁 ---------- */
 const VIEWS=[["pos","收銀"],["in","進貨"],["stock","庫存盤點"],["day","今日交易"],["month","月報表"],["set","設定"]];
@@ -436,10 +473,11 @@ function storeSel(el,withAll){const keep=el.value;const ss=myStores();
 /* ---------- 發票：單價是含稅價，營業稅 5%。每張發票 未稅＝含稅÷1.05 四捨五入，稅額＝含稅－未稅。
    三聯式每列未稅金額依比例分配，加總等於未稅銷售額。同一筆有應稅＋免稅要分開開兩張。 ---------- */
 const isFree=id=>!!FREE[id];
+const lineFree=l=>l.parts?l.parts.length>0&&l.parts.every(p=>isFree(p.id)):lineFree(l);
 function invCalc(lines){
-  const T=lines.filter(l=>!isFree(l.id)).reduce((a,l)=>a+l.qty*l.price,0),F=lines.filter(l=>isFree(l.id)).reduce((a,l)=>a+l.qty*l.price,0);
+  const T=lines.filter(l=>!lineFree(l)).reduce((a,l)=>a+l.qty*l.price,0),F=lines.filter(l=>lineFree(l)).reduce((a,l)=>a+l.qty*l.price,0);
   const net=Math.round(T/1.05),tax=T-net;
-  const base=lines.map((l,i)=>({i,raw:isFree(l.id)?null:l.qty*l.price/1.05})).filter(x=>x.raw!=null).map(x=>({...x,v:Math.floor(x.raw),fr:x.raw-Math.floor(x.raw)}));
+  const base=lines.map((l,i)=>({i,raw:lineFree(l)?null:l.qty*l.price/1.05})).filter(x=>x.raw!=null).map(x=>({...x,v:Math.floor(x.raw),fr:x.raw-Math.floor(x.raw)}));
   let rest=net-base.reduce((a,x)=>a+x.v,0);base.sort((a,b)=>b.fr-a.fr).forEach(x=>{if(rest>0){x.v++;rest--}});
   const netOf={};base.forEach(x=>netOf[x.i]=x.v);
   return {T,F,net,tax,total:T+F,netOf};
@@ -452,13 +490,13 @@ const n2=v=>Number.isInteger(v)?String(v):v.toFixed(2);
 const UPD="零壹貳參肆伍陸柒捌玖",PLACES=["億","仟萬","佰萬","拾萬","萬","仟","佰","拾","元"];
 function upperBoxes(n){const d=String(Math.round(n)).padStart(9,"0").slice(-9).split("");let st=d.findIndex(x=>x!=="0");if(st<0)st=8;
   return `<div class="upper"><span class="ul">總計新臺幣（中文大寫）</span><div class="ub">${PLACES.map((p,i)=>i<st?"":`<span><small>${p}</small><b>${UPD[+d[i]]}</b></span>`).join("")}</div></div>`}
-const mixed=lines=>lines.some(l=>isFree(l.id))&&lines.some(l=>!isFree(l.id));
+const mixed=lines=>lines.some(l=>lineFree(l))&&lines.some(l=>!lineFree(l));
 // 一張發票的填寫參考。free=true 是免稅那張（不算稅）。
 function invOne(lines,type,free,taxId,title,tag){
   const c=invCalc(lines),tot=c.total,net=free?tot:c.net,tax=free?0:c.tax;
   const head=`<h3>${tag||""}${type==="3"?"三聯式":"二聯式"}・${free?"免稅":"應稅"}<small>${money(tot)} 元</small></h3>`;
   if(type==="3"){
-    const rows=lines.map((l,i)=>{const amt=free?l.qty*l.price:c.netOf[i];return `<tr><td>${esc(iname(l.id))}</td><td>${l.qty}</td><td>${n2(Math.round(amt/l.qty*100)/100)}</td><td>${money(amt)}</td></tr>`}).join("");
+    const rows=lines.map((l,i)=>{const amt=free?l.qty*l.price:c.netOf[i];return `<tr><td>${esc(l.name||iname(l.id))}</td><td>${l.qty}</td><td>${n2(Math.round(amt/l.qty*100)/100)}</td><td>${money(amt)}</td></tr>`}).join("");
     return `<div class="inv">${head}<ol class="steps">
       <li>買受人寫「${esc(title)||"（公司抬頭）"}」，統一編號寫「${taxId?esc(taxId):"＿＿＿＿＿＿＿＿"}」</li>
       <li>課稅別勾「<b>${free?"免稅":"應稅"}</b>」</li>
@@ -467,14 +505,14 @@ function invOne(lines,type,free,taxId,title,tag){
       <tfoot><tr><td colspan="3">④ 銷售額合計</td><td>${money(net)}</td></tr><tr><td colspan="3">⑤ 營業稅</td><td>${money(tax)}</td></tr><tr class="big"><td colspan="3">⑥ 總計</td><td>${money(tot)}</td></tr></tfoot></table>
       ${upperBoxes(tot)}</div>`}
   return `<div class="inv">${head}<table><thead><tr><th>品名</th><th>數量</th><th>單價</th><th>金額</th></tr></thead><tbody>
-    ${lines.map(l=>`<tr><td>${esc(iname(l.id))}</td><td>${l.qty}</td><td>${l.price}</td><td>${money(l.qty*l.price)}</td></tr>`).join("")}</tbody>
+    ${lines.map(l=>`<tr><td>${esc(l.name||iname(l.id))}</td><td>${l.qty}</td><td>${l.price}</td><td>${money(l.qty*l.price)}</td></tr>`).join("")}</tbody>
     <tfoot><tr class="big"><td colspan="3">總計（寫在發票上）</td><td>${money(tot)}</td></tr></tfoot></table>
     ${upperBoxes(tot)}<div class="tip">${free?"免稅品項，不含營業稅。":"對帳用：未稅 "+money(net)+"＋稅 "+money(tax)+"（二聯式發票上不用寫）"}</div></div>`;
 }
 function invRef(lines,type,taxId,title){
   if(!lines.length)return"";
-  if(!mixed(lines))return invOne(lines,type,isFree(lines[0].c),taxId,title,"");
-  const tl=lines.filter(l=>!isFree(l.id)),fl=lines.filter(l=>isFree(l.id));
+  if(!mixed(lines))return invOne(lines,type,lineFree(lines[0]),taxId,title,"");
+  const tl=lines.filter(l=>!lineFree(l)),fl=lines.filter(l=>lineFree(l));
   return `<div class="mixwarn">⚠ 這筆同時有<b>應稅</b>和<b>免稅</b>商品，發票要<b>分開開兩張</b>。</div>`+invOne(tl,type,false,taxId,title,"第 1 張・")+invOne(fl,type,true,taxId,title,"第 2 張・");
 }
 
@@ -487,18 +525,30 @@ function renderPos(){
   const storeCtl=isStaff()?`<select id="posStore">${STORES.map(s=>`<option value="${s[0]}"${s[0]===posStore?" selected":""}>${s[1]}</option>`).join("")}</select>`:`<b>${SNAME[posStore]}</b>`;
   $("#info").innerHTML=`<span>門市 ${storeCtl}</span><span>日期 <b>${T}</b></span><span>下一筆序號 <b>${no}</b></span><span>收銀 <b>${esc(ME.name)}</b></span>`;
   const ps=$("#posStore");if(ps)ps.onchange=e=>{posStore=e.target.value;try{localStorage.setItem("jxcpos-store",posStore)}catch(x){}cart=[];sel=-1;renderPos()};
-  const cats=["常用",...new Set(CAT.map(x=>x.cat))];if(!cats.includes(cat))cat="常用";
+  const shown=new Set(PICKS[posStore]||[]);
+  const cats=["常用",...new Set(CAT.filter(x=>shown.has(x.id)).map(x=>x.cat))];if(!cats.includes(cat))cat="常用";
   $("#cats").innerHTML=cats.map(c=>`<button data-c="${esc(c)}" aria-pressed="${c===cat}">${esc(c)}</button>`).join("");
   $("#cats").querySelectorAll("button").forEach(b=>b.onclick=()=>{cat=b.dataset.c;renderPos()});
-  const list=cat==="常用"?(PICKS[posStore]||[]).filter(id=>CATM[id]):CAT.filter(x=>x.cat===cat).map(x=>x.id);
-  $("#grid").innerHTML=list.map(id=>{const q=stockOf(posStore,id),p=CATM[id].price;
-    return `<button class="tile${q<=2?" low":""}" data-id="${esc(id)}">${esc(iname(id))}<small>${p?"$"+p:"未定價"}・庫存 ${q}</small></button>`}).join("")||
-    `<div class="empty" style="grid-column:1/-1">${cat==="常用"?"還沒設定常用商品，"+(isStaff()?"請到「設定」勾選，或點上面的分類找商品":"可以點上面的分類找商品"):"這個分類沒有商品"}</div>`;
+  const tile=k=>{const c=comboOf(k);if(c){const q=Math.min(...c.parts.map(p=>Math.floor(stockOf(posStore,p.id)/p.qty)));
+      return `<button class="tile combo${q<=2?" low":""}" data-id="${esc(c.code)}">${esc(c.name)}<small>組合 $${c.price}・可賣 ${isFinite(q)?q:0}</small></button>`}
+    const id=idOf(k);if(!id)return k?`<div class="tile blank">${esc(k)}<small>找不到料號</small></div>`:`<div class="tile blank"></div>`;
+    const q=stockOf(posStore,id),p=CATM[id].price;return `<button class="tile${q<=2?" low":""}" data-id="${esc(id)}">${esc(iname(id))}<small>${p?"$"+p:"未定價"}・庫存 ${q}</small></button>`};
+  if(cat==="常用"){const f=FAV[posStore]||[];
+    $("#grid").innerHTML=f.some(Boolean)?Array.from({length:16},(_,i)=>tile(f[i]||"")).join(""):`<div class="empty" style="grid-column:1/-1">還沒設定常用格子，${isStaff()?"請到「設定 → 常用 4×4」輸入料號或組合代碼":"請管理者到設定輸入"}。也可以點上面的分類找商品。</div>`}
+  else $("#grid").innerHTML=CAT.filter(x=>x.cat===cat&&shown.has(x.id)).map(x=>tile(x.code||x.id)).join("")||`<div class="empty" style="grid-column:1/-1">這個分類沒有勾選的商品</div>`;
   $("#grid").querySelectorAll(".tile").forEach(b=>b.onclick=()=>addItem(b.dataset.id));
   renderCart();
 }
+const comboOf=k=>k&&COMBO.find(c=>c.code===k&&c.parts&&c.parts.length);
+const idOf=k=>{if(!k)return null;if(CATM[k])return k;const x=CAT.find(c=>c.code===k);return x?x.id:null};
+// 組合：售價依各商品原價比例分給每一項，月報的銷售額才分得清楚
+function comboParts(c){const tot=c.parts.reduce((a,p)=>a+(CATM[p.id]?CATM[p.id].price:0)*p.qty,0);let left=c.price;
+  return c.parts.map((p,i)=>{const share=i===c.parts.length-1?left:Math.round(c.price*(tot?(CATM[p.id]?CATM[p.id].price:0)*p.qty/tot:1/c.parts.length));left-=share;
+    return {id:p.id,name:iname(p.id),qty:p.qty,amt:share/1}})}
 function addItem(id){const n=parseInt(buf)||1;buf="";const i=cart.findIndex(l=>l.id===id);
-  if(i>=0){cart[i].qty+=n;sel=i}else{cart.push({id,name:iname(id),qty:n,price:CATM[id].price||0});sel=cart.length-1}renderCart()}
+  if(i>=0){cart[i].qty+=n;sel=i;renderCart();return}
+  const c=comboOf(id);if(c)cart.push({id:c.code,name:c.name,qty:n,price:c.price,parts:comboParts(c)});
+  else cart.push({id,name:iname(id),qty:n,price:CATM[id].price||0});sel=cart.length-1;renderCart()}
 function renderCart(){
   $("#cartBody").innerHTML=cart.map((l,i)=>`<tr data-i="${i}" class="${i===sel?"sel":""}"><td>${i+1}</td><td>${esc(l.name)}</td><td>${l.price}</td><td>${l.qty}</td><td>${money(l.qty*l.price)}</td></tr>`).join("");
   $("#cartEmpty").hidden=cart.length>0;
@@ -559,12 +609,13 @@ function findInv(v,exceptId,exceptKey){for(const s of myStores())for(const x of 
 function renderIn(){
   const ss=myStores();
   $("#info").innerHTML=`<span>登入 <b>${esc(ME.name)}</b></span><span>${isStaff()?"可管理 <b>全部門市</b>":"門市 <b>"+SNAME[ME.store]+"</b>"}</span>`;
-  const pend=ss.flatMap(s=>arr(s,"receipts").filter(r=>r.status==="待收")).sort((a,b)=>a.date.localeCompare(b.date));
+  const pf=($("#pendFind").value||"").trim().toUpperCase();
+  const pend=ss.flatMap(s=>arr(s,"receipts").filter(r=>r.status==="待收"&&(!pf||String(r.doc||"").toUpperCase().includes(pf)))).sort((a,b)=>a.date.localeCompare(b.date));
   $("#pendList").innerHTML=pend.map(r=>`<div class="card" data-s="${r.store}" data-id="${esc(r.id)}">
-    <div class="row" style="justify-content:space-between"><b>${SNAME[r.store]}・${r.date.slice(5).replace("-","/")} ${esc(r.src)}${r.doc?"（"+esc(r.doc)+"）":""}</b><span class="pill no">待收貨</span></div>
+    <div class="row" style="justify-content:space-between"><b>${r.doc?`<span style="font-size:1.15rem">${esc(r.doc)}</span>　`:""}${SNAME[r.store]}・${r.date.slice(5).replace("-","/")} ${esc(r.src)}</b><span>${r.shipped===false?'<span class="pill bad">工廠還沒按出貨</span> ':""}<span class="pill no">待收貨</span></span></div>
     <div class="tbl" style="margin:8px 0"><table><thead><tr><th class="l">品項</th><th>出貨</th><th>實際收到</th></tr></thead><tbody>
     ${r.lines.map((l,i)=>`<tr><td class="l">${esc(l.name||iname(l.id))}</td><td>${l.qty}</td><td><input type="number" min="0" value="${l.qty}" data-i="${i}" style="width:70px;text-align:right" aria-label="實際收到"></td></tr>`).join("")}
-    </tbody></table></div><button class="btn good" data-ok="1">確認收到</button></div>`).join("")||`<p class="hint">目前沒有待收的貨。</p>`;
+    </tbody></table></div><button class="btn good" data-ok="1">${r.doc?"確認收到整張 "+esc(r.doc):"確認收到"}</button></div>`).join("")||`<p class="hint">${pf?"找不到這張調撥單（可能已經收過，或不是調到這間門市）。":"目前沒有待收的貨。"}</p>`;
   $("#pendList").querySelectorAll("[data-ok]").forEach(b=>b.onclick=async()=>{
     const card=b.closest(".card"),s=card.dataset.s,r=JSON.parse(JSON.stringify(D[s].receipts[card.dataset.id]));
     card.querySelectorAll("input").forEach(i=>{const l=r.lines[+i.dataset.i],q=Math.max(0,parseInt(i.value)||0);if(q!==l.qty){l.sent=l.qty;l.qty=q}});
@@ -575,6 +626,7 @@ function renderIn(){
   const hist=ss.flatMap(s=>arr(s,"receipts")).sort((a,b)=>b.date.localeCompare(a.date)).slice(0,40);
   $("#inHist").innerHTML=hist.flatMap(r=>r.lines.map(l=>`<tr><td class="l">${r.date.slice(5).replace("-","/")}</td><td class="l">${SNAME[r.store]}</td><td class="l">${esc(r.src)}</td><td class="l">${esc(l.name||iname(l.id))}</td><td>${l.qty}${l.sent!=null?` <span class="pill bad">出 ${l.sent}</span>`:""}</td><td class="l"><span class="pill ${r.status==="已收"?"ok":"no"}">${r.status}</span></td></tr>`)).join("")||`<tr><td colspan="6" style="text-align:center">還沒有進貨紀錄</td></tr>`;
 }
+$("#pendFind").oninput=renderIn;
 $("#ptAdd").onclick=async()=>{const q=parseInt($("#ptQty").value)||0,id=$("#ptItem").value;if(q<=0||!id)return;
   const s=myStores().length>1?$("#ptStore").value:myStores()[0],rid=newId(),T=today();
   if(await put(`stores/${s}/receipts/${rid}`,{id:rid,store:s,date:T,recvDate:T,src:$("#ptSrc").value.trim()||"其他",lines:[{id,name:iname(id),qty:q}],status:"已收",by:ME.name}))toast(`已登記進貨到 ${SNAME[s]}`)};
@@ -655,9 +707,26 @@ function renderSet(){
   const cats=[...new Set(CAT.map(x=>x.cat))];
   $("#pkList").innerHTML=cats.map(c=>{const its=CAT.filter(x=>x.cat===c&&(!q||x.name.includes(q)||x.code.includes(q)));if(!its.length)return"";
     return `<h3 style="font-size:.92rem;color:var(--muted);margin:12px 0 4px">${esc(c)}（${its.filter(x=>selS.has(x.id)).length}/${its.length}）</h3><div class="checks">${its.map(x=>`<label><input type="checkbox" value="${esc(x.id)}"${selS.has(x.id)?" checked":""}><span style="flex:1">${esc(x.name)}</span><span style="font-size:.78rem;display:flex;gap:2px;align-items:center" title="免稅品項不算營業稅"><input type="checkbox" data-free="${esc(x.id)}"${isFree(x.id)?" checked":""} style="width:15px;height:15px">免稅</span><small style="color:var(--muted)">${x.price?"$"+x.price:"未定價"}</small></label>`).join("")}</div>`}).join("")||`<p class="hint">${CAT.length?"找不到符合的商品":"商品清單是空的：請確認進銷存品項的類型是「成品」"}</p>`;
+  // 常用 4×4
+  $("#favStoreName").textContent=SNAME[s];
+  $("#codeList").innerHTML=COMBO.map(c=>`<option value="${esc(c.code)}">組合：${esc(c.name)}</option>`).join("")+CAT.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("");
+  const fav=FAV[s]||[],nm=k=>{const c=comboOf(k);if(c)return"組合："+c.name;const id=idOf(k);return id?iname(id):k?"找不到":"（空白）"};
+  $("#favGrid").innerHTML=Array.from({length:16},(_,i)=>`<label>第 ${i+1} 格<input type="text" list="codeList" value="${esc(fav[i]||"")}" data-fav="${i}" autocomplete="off"><span>${esc(nm(fav[i]||""))}</span></label>`).join("");
+  $("#favGrid").querySelectorAll("[data-fav]").forEach(i=>i.onchange=()=>{const f=Array.from({length:16},(_,k)=>(FAV[s]||[])[k]||"");f[+i.dataset.fav]=i.value.trim();FAV[s]=f;put("picks/fav_"+s,f).then(()=>{});i.nextElementSibling.textContent=nm(i.value.trim())});
+  // 組合優惠
+  const partsTxt=c=>(c.parts||[]).map(p=>(CATM[p.id]?CATM[p.id].code:p.id)+"*"+p.qty).join(", ");
+  $("#cbBody").innerHTML=COMBO.map((c,i)=>`<tr data-i="${i}"><td class="l"><b>${esc(c.code)}</b></td><td class="l"><input type="text" value="${esc(c.name)}" data-k="name" style="width:130px"></td><td><input type="number" value="${c.price}" data-k="price" style="width:70px;text-align:right"></td><td class="l" style="white-space:normal"><input type="text" value="${esc(partsTxt(c))}" data-k="parts" placeholder="103008-003*2" style="width:190px"><br><small style="color:var(--muted)">${(c.parts||[]).map(p=>esc(iname(p.id))+"×"+p.qty).join("、")||"還沒有內容"}</small></td><td><button class="btn" data-cbdel="${i}">刪除</button></td></tr>`).join("")||`<tr><td colspan="5" style="text-align:center">還沒有組合</td></tr>`;
+  $("#cbBody").querySelectorAll("input").forEach(inp=>inp.onchange=()=>{const i=+inp.closest("tr").dataset.i,list=JSON.parse(JSON.stringify(COMBO)),c=list[i],k=inp.dataset.k;
+    if(k==="name")c.name=inp.value.trim()||c.code;else if(k==="price")c.price=Math.max(0,+inp.value||0);
+    else{const bad=[];c.parts=inp.value.split(/[,，、\s]+/).filter(Boolean).map(x=>{const [code,q]=x.split(/[*×xX]/);const id=idOf(code.trim());if(!id){bad.push(code);return null}return {id,qty:Math.max(1,parseInt(q)||1)}}).filter(Boolean);
+      if(bad.length)toast("找不到料號："+bad.join("、"))}
+    COMBO=list;put("picks/_combo",list);setTimeout(renderSet,0)});
+  $("#cbBody").querySelectorAll("[data-cbdel]").forEach(b=>{let armed=false;b.onclick=()=>{if(!armed){armed=true;b.textContent="再按一次確認";return}const list=COMBO.filter((_,i)=>i!==+b.dataset.cbdel);COMBO=list;put("picks/_combo",list);renderSet()}});
   $("#pkList").querySelectorAll("[data-free]").forEach(i=>{i.onclick=e=>e.stopPropagation();i.onchange=()=>{const f={...FREE};if(i.checked)f[i.dataset.free]=true;else delete f[i.dataset.free];FREE=f;put("picks/_tax",f);toast(i.checked?"已設為免稅":"已改回應稅")}});
   $("#pkList").querySelectorAll("input[type=checkbox]:not([data-free])").forEach(i=>i.onchange=()=>{const a=[...(PICKS[s]||[])],k=a.indexOf(i.value);if(i.checked&&k<0)a.push(i.value);if(!i.checked&&k>=0)a.splice(k,1);PICKS[s]=a;put("picks/"+s,a)});
 }
+$("#cbAdd").onclick=()=>{let n=1;while(COMBO.some(c=>c.code==="G"+String(n).padStart(2,"0")))n++;const code="G"+String(n).padStart(2,"0");
+  const list=[...COMBO,{code,name:"新組合 "+code,price:0,parts:[]}];COMBO=list;put("picks/_combo",list);renderSet()};
 $("#acAdd").onclick=async()=>{const n=$("#acName").value.trim(),m=$("#acMail").value.trim().toLowerCase();
   if(!n||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){toast("請填名稱和正確的 Gmail");return}
   try{await fdb.ref("jxcPosUsers/"+mkey(m)).set({name:n,role:$("#acRole").value,store:$("#acStore").value});$("#acName").value="";$("#acMail").value="";toast("已新增 "+m)}
