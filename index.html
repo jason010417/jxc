@@ -324,7 +324,7 @@ const KINDS={
 const PAGES=[['todo','待辦工作'],['SO','銷貨出貨'],['PO','採購'],['MO','生產'],['EX','外展借還'],['ar','應收付帳款'],['hist','歷史查詢'],['home','庫存總表'],['items','品項清單'],['bom','BOM 設定'],['contacts','顧客／廠商']];
 const KEY='erp-local-v2';
 
-const SEED={"sources": [["L", "LINE詢問"], ["T", "電話詢問"], ["S", "蝦皮下訂"], ["E", "官網下訂"], ["O", "其他"]]};
+const SEED={"sources": [["L", "LINE詢問"], ["T", "電話詢問"], ["S", "蝦皮下訂"], ["E", "官網下訂"], ["7", "7-11交貨便"], ["O", "其他"]]};
 
 
 const FLOW={
@@ -345,7 +345,7 @@ const flowDone=d=>!flowOf(d)||stepN(d)>=flowOf(d).length;
 const docDone=d=>d.kind==='EX'?!!d.returned:flowDone(d);
 const hasStage=kind=>!!FLOW[kind]||kind==='EX';
 const counts=d=>!STOCK_AT[d.kind]||stepN(d)>=STOCK_AT[d.kind];
-function migrate(){S.docs.forEach(d=>{if(!FLOW[d.kind]||d.steps)return;const F=FLOW[d.kind];
+function migrate(){(S.customers||[]).forEach(c=>{if(c.svc==='網購（蝦皮／官網）')c.svc='網購（蝦皮／官網／7-11）'});S.docs.forEach(d=>{if(!FLOW[d.kind]||d.steps)return;const F=FLOW[d.kind];
   d.steps=F.map(()=>({at:d.date,by:''}));if(d.kind==='SO'&&(d.paid||0)<amount(d))d.steps.pop()})}
 const PERMS=[['edit','修改單據（會留下修改紀錄）'],['del','刪除單據'],['back','退回流程步驟'],['items','新增、修改品項（價格、期初、安全庫存、匯入）'],['bom','設定 BOM'],['contactAdd','新增顧客／廠商'],['contactEdit','修改既有的顧客／廠商資料'],['data','重設資料、還原備份']];
 function hashPw(t){let h=5381;for(const c of 'erp|'+t)h=((h<<5)+h+c.codePointAt(0))>>>0;return 'h'+h.toString(36)+t.length}
@@ -559,20 +559,28 @@ function render(){
 }
 
 /* ---------- 庫存總表 ---------- */
-let homeFilter='all';const fc={from:'',to:'',days:30,only:false};
+let homeFilter='all',homeSort={k:'',d:1};const fc={from:'',to:'',days:30,only:false};
 function homeHTML(){
   const st=stock();
-  const rows=S.items.filter(i=>(homeFilter==='all'||i.type===homeFilter)&&(!i.off||st[i.id].cur)).map(i=>{const r=st[i.id],isLow=!i.off&&r.cur<(+i.safety||0);
-    return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}${i.off?' <span class="pill mid">停用</span>':''}</td><td>${i.type}</td><td class="n">${fmt(r.open)}</td><td class="n">${fmt(r.po)}</td><td class="n">${fmt(r.use)}</td><td class="n">${fmt(r.made)}</td><td class="n">${fmt(r.exOut)}</td><td class="n">${fmt(r.exRet)}</td><td class="n">${fmt(r.so)}</td><td class="n"><b>${fmt(r.cur)}</b> ${esc(i.unit)}</td><td class="n">${fmt(i.safety)}</td><td>${isLow?'<span class="pill warn">需補貨</span>':'<span class="pill ok">正常</span>'}</td></tr>`}).join('');
+  const low=i=>!i.off&&st[i.id].cur<(+i.safety||0);
+  const COLS=[['code','料號',i=>i.code],['name','品名',i=>i.name],['unit','規格',i=>i.unit],['type','類別',i=>i.type],['safety','安全庫存',i=>+i.safety||0,1],['cur','現有',i=>st[i.id].cur,1],['st','狀態',i=>low(i)?0:1],
+    ['po','採購入',i=>st[i.id].po,1],['use','生產領用',i=>st[i.id].use,1],['made','生產完成',i=>st[i.id].made,1],['so','出貨',i=>st[i.id].so,1],['exOut','外展帶出',i=>st[i.id].exOut,1],['exRet','外展歸還',i=>st[i.id].exRet,1]];
+  let list=S.items.filter(i=>(homeFilter==='all'||i.type===homeFilter)&&(!i.off||st[i.id].cur));
+  const sc=COLS.find(c=>c[0]===homeSort.k);if(sc){const g=sc[2];list=list.slice().sort((a,b)=>{const x=g(a),y=g(b);return (sc[3]||sc[0]==='st'?(x-y):String(x??'').localeCompare(String(y??''),'zh-Hant-TW',{numeric:true}))*homeSort.d})}
+  const rows=list.map(i=>{const r=st[i.id];
+    return `<tr><td class="mono">${esc(i.code)}</td><td>${esc(i.name)}${i.off?' <span class="pill mid">停用</span>':''}</td><td>${esc(i.unit)}</td><td>${i.type}</td><td class="n">${fmt(i.safety)}</td><td class="n"><b>${fmt(r.cur)}</b></td><td>${low(i)?'<span class="pill warn">需補貨</span>':'<span class="pill ok">正常</span>'}</td><td class="n">${fmt(r.po)}</td><td class="n">${fmt(r.use)}</td><td class="n">${fmt(r.made)}</td><td class="n">${fmt(r.so)}</td><td class="n">${fmt(r.exOut)}</td><td class="n">${fmt(r.exRet)}</td></tr>`}).join('');
+  const th=COLS.map(c=>`<th class="hsort${c[3]?' n':''}" data-k="${c[0]}" style="cursor:pointer;user-select:none" title="點一下排序，再點一下反過來">${c[1]}${homeSort.k===c[0]?(homeSort.d>0?' ▲':' ▼'):''}</th>`).join('');
   return `<div><h2>庫存總表</h2><p class="lead">所有數字都從各張單據自動算出來，不用手動改庫存。進貨是半成品，生產時領用半成品、完工變成品。資料存在雲端，大家開同一個網址看到的是同一份，有人改了會自動更新。${S.count?`<br><b>目前庫存從 ${S.count.date} 的盤點數量起算</b>，之前的單據只留作歷史紀錄。`:''}</p></div>
   ${forecastHTML()}
   <section class="panel">
     <div class="row between"><div class="seg" id="hf">${[['all','全部'],...TYPES.map(t=>[t,t])].map(([k,t])=>`<button type="button" data-f="${k}" aria-pressed="${homeFilter===k}">${t}</button>`).join('')}</div>
-    <input id="hq" class="rowfilter" data-target="#stockBody" placeholder="搜尋料號或品名" style="max-width:220px"><span class="hint">現有 = 期初 + 採購入 − 生產領用 + 生產完工 − 外展帶出 + 外展歸還 − 出貨</span></div>
-    <div class="tablebox"><table><thead><tr><th>料號</th><th>品名</th><th>類別</th><th class="n">${S.count?'盤點 '+S.count.date.slice(5).replace('-','/'):'期初'}</th><th class="n">採購入</th><th class="n">生產領用</th><th class="n">生產完工</th><th class="n">外展帶出</th><th class="n">外展歸還</th><th class="n">出貨</th><th class="n">現有</th><th class="n">安全庫存</th><th>狀態</th></tr></thead><tbody id="stockBody">${rows}</tbody></table></div>
+    <input id="hq" class="rowfilter" data-target="#stockBody" placeholder="搜尋料號或品名" style="max-width:220px"><span class="hint">現有 = ${S.count?'盤點數量':'期初'} + 採購入 − 生產領用 + 生產完成 − 外展帶出 + 外展歸還 − 出貨。點欄位名稱可以排序。</span></div>
+    <div class="tablebox"><table><thead><tr>${th}</tr></thead><tbody id="stockBody">${rows}</tbody></table></div>
   </section>`;
 }
 document.addEventListener('click',e=>{const b=e.target.closest('#hf button');if(!b)return;homeFilter=b.dataset.f;render()});
+document.addEventListener('click',e=>{const th=e.target.closest('th.hsort');if(!th)return;const k=th.dataset.k;homeSort=homeSort.k===k?(homeSort.d>0?{k,d:-1}:{k:'',d:1}):{k,d:1};
+  const q=$('#hq')&&$('#hq').value;render();if(q){$('#hq').value=q;$('#hq').dispatchEvent(new Event('input',{bubbles:true}))}});
 function addDays(iso,n){const d=new Date(iso+'T00:00:00');d.setDate(d.getDate()+n);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
 function forecastHTML(){
   if(!fc.to)fc.to=today();if(!fc.from)fc.from=addDays(fc.to,-29);
@@ -994,7 +1002,7 @@ const feeSum=d=>(d.pays||[]).reduce((s,x)=>s+(+x.fee||0)+(+x.wire||0),0);
 document.addEventListener('input',e=>{if(!e.target.classList.contains('feein')||e.target.dataset.px!=='pay')return;const pi=$('#payIn'),bar=$('.sheetbar'),d=bar&&S.docs.find(x=>x.no===bar.dataset.no);
   if(pi&&d&&!pi.dataset.touched){const v=feeVal('pay');pi.value=Math.max(0,+pi.dataset.rest-v.fee-v.wire)}});
 document.addEventListener('input',e=>{if(e.target.id==='payIn')e.target.dataset.touched='1'});
-const SHIP_METHODS=['親送','自取','回頭車','蝦皮店到店','7-11 交貨便','7-11 賣貨便','全家店到店','萊爾富','OK 超商','黑貓宅急便','新竹物流','嘉里大榮','宅配通','中華郵政','順豐速運','其他'];
+const SHIP_METHODS=['親送','自取','回頭車','蝦皮店到店','7-11 交貨便','全家店到店','萊爾富','OK 超商','黑貓宅急便','新竹物流','嘉里大榮','宅配通','中華郵政','順豐速運','其他'];
 const TAKER={SO:'接單人員',PO:'開單人員'};
 document.addEventListener('change',e=>{if(!e.target.classList.contains('eqo'))return;const d=curDoc();if(!d||!d.equip)return;const q=d.equip[+e.target.dataset.i];if(!q)return;
   if(e.target.checked)q.out=true;else delete q.out;save();openDoc(d.no)});
@@ -1582,7 +1590,7 @@ let cSide='C';
 const CF=[['code','客戶編號'],['src','來源'],['name','客戶名稱'],['svc','服務類型'],['contact','承辦人'],['phone','承辦電話'],['email','E-mail'],['fax','傳真'],['title','抬頭'],['taxId','統一編號'],['recv','收件人'],['recvPhone','收件電話'],['addr','送貨地址']];
 const VF=[['code','廠商編號'],['name','廠商名稱'],['svc','服務類型'],['taxId','統一編號'],['contact','聯絡人'],['phone','聯絡電話'],['email','E-mail'],['line','LINE'],['bank','銀行'],['branch','分行'],['bankCode','代號'],['acctName','戶名'],['acct','帳號']];
 function svcOptions(isC){
-  const base=isC?['企業禮品','機關團體','社福團體','個人','門市通路','網購（蝦皮／官網）']
+  const base=isC?['企業禮品','機關團體','社福團體','個人','門市通路','網購（蝦皮／官網／7-11）']
     :[...new Set(S.items.map(i=>(i.cat||'').replace(/^\d+\s*/,'')).filter(Boolean)),'印刷','貨運物流','加工代工','制服'];
   return [...new Set([...base,...(isC?S.customers:S.vendors).map(c=>c.svc).filter(Boolean)])];
 }
